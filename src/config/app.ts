@@ -8,7 +8,7 @@ export const APP_CONFIG = {
   // Note: Direct MySQL connections from browser are not possible
   // This config is used by the backend edge function
   database: {
-    host: "x.x.x.x", // Change this to your MySQL server IP
+    host: "86.84.18.58",
     port: 3306,
     username: "request",
     password: "user",
