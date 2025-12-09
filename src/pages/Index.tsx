@@ -2,10 +2,9 @@ import { useState } from "react";
 import Header from "@/components/Header";
 import Navigation from "@/components/Navigation";
 import RadioPlayer from "@/components/RadioPlayer";
-import RequestForm from "@/components/RequestForm";
-import PodcastList from "@/components/PodcastList";
+import SongBrowser from "@/components/SongBrowser";
 
-type Tab = "radio" | "requests" | "podcasts";
+type Tab = "radio" | "requests";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<Tab>("radio");
@@ -17,8 +16,7 @@ const Index = () => {
       <main className="flex-1 overflow-y-auto pb-24">
         <div className="max-w-md mx-auto">
           {activeTab === "radio" && <RadioPlayer />}
-          {activeTab === "requests" && <RequestForm />}
-          {activeTab === "podcasts" && <PodcastList />}
+          {activeTab === "requests" && <SongBrowser />}
         </div>
       </main>
 
