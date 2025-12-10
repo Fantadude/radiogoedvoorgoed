@@ -40,7 +40,7 @@ serve(async (req) => {
       let query = `
         SELECT ID, artist, title, album, duration 
         FROM songs 
-        WHERE enabled = 1
+        WHERE enabled = 1 AND id_subcat != 31
       `;
       
       const params: any[] = [];
