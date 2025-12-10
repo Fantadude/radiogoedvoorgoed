@@ -16,7 +16,6 @@ interface Song {
   title: string;
   album: string;
   duration: number;
-  genre: string;
 }
 
 const SongBrowser = () => {
@@ -32,18 +31,13 @@ const SongBrowser = () => {
   const fetchSongs = async (search = "") => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('radiodj', {
-        body: null,
-        headers: {},
-      });
-      
-      // Use URL params for GET-like behavior
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/radiodj?action=songs&limit=200&search=${encodeURIComponent(search)}`
       );
       
       if (!response.ok) {
-        throw new Error('Failed to fetch songs');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch songs');
       }
       
       const result = await response.json();

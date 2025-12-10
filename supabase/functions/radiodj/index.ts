@@ -38,7 +38,7 @@ serve(async (req) => {
       const search = url.searchParams.get('search') || '';
       
       let query = `
-        SELECT ID, artist, title, album, duration, genre 
+        SELECT ID, artist, title, album, duration 
         FROM songs 
         WHERE enabled = 1
       `;
