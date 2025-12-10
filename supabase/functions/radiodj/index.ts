@@ -76,8 +76,9 @@ serve(async (req) => {
       console.log(`Creating request for song ${songId} from ${name}`);
       
       // Insert into requests table (RadioDJ's standard requests table)
+      // RadioDJ uses 'username' column, not 'name'
       const result = await client.execute(
-        `INSERT INTO requests (songID, name, msg, requested) VALUES (?, ?, ?, NOW())`,
+        `INSERT INTO requests (songID, username, msg, requested) VALUES (?, ?, ?, NOW())`,
         [songId, name || 'App User', message || '']
       );
       
