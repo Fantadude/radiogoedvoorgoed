@@ -65,6 +65,16 @@ serve(async (req) => {
       });
     }
     
+    if (action === 'describe-requests') {
+      // Debug endpoint to check the requests table structure
+      const result = await client.query(`DESCRIBE requests`);
+      console.log('Requests table structure:', JSON.stringify(result));
+      await client.close();
+      return new Response(JSON.stringify({ columns: result }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
     if (action === 'request' && req.method === 'POST') {
       const body = await req.json();
       const { songId, name, message } = body;
@@ -73,13 +83,18 @@ serve(async (req) => {
         throw new Error('Song ID is required');
       }
       
-      console.log(`Creating request for song ${songId} from ${name}`);
+      // Get client IP from headers (or use placeholder)
+      const clientIP = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 
+                       req.headers.get('x-real-ip') || 
+                       'App';
       
-      // Insert into requests table (RadioDJ's standard requests table)
-      // RadioDJ uses 'username' column, not 'name'
+      console.log(`Creating request for song ${songId} from ${name} (IP: ${clientIP})`);
+      
+      // Insert into requests table with correct column names:
+      // songID, username, userIP, message, requested, played
       const result = await client.execute(
-        `INSERT INTO requests (songID, username, msg, requested) VALUES (?, ?, ?, NOW())`,
-        [songId, name || 'App User', message || '']
+        `INSERT INTO requests (songID, username, userIP, message, requested, played) VALUES (?, ?, ?, ?, NOW(), 0)`,
+        [songId, name || 'App User', clientIP, message || '']
       );
       
       console.log('Request inserted successfully');
