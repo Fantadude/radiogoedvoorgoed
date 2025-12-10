@@ -5,8 +5,13 @@ import { Slider } from "@/components/ui/slider";
 import { APP_CONFIG } from "@/config/app";
 
 interface NowPlaying {
-  artist: string;
   title: string;
+  art: string;
+  listeners: number;
+  ulistener: number;
+  bitrate: string;
+  djusername: string;
+  djprofile: string;
 }
 
 const RadioPlayer = () => {
@@ -15,10 +20,7 @@ const RadioPlayer = () => {
   const [volume, setVolume] = useState(80);
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [nowPlaying, setNowPlaying] = useState<NowPlaying>({
-    artist: "GoedvoorGoed",
-    title: "Live Radio",
-  });
+  const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -30,15 +32,16 @@ const RadioPlayer = () => {
   useEffect(() => {
     const fetchNowPlaying = async () => {
       try {
-        // In production, this would fetch from the radio metadata API
-        // For now, we'll use placeholder data
+        const response = await fetch("https://ex52.voordeligstreamen.nl/cp/get_info.php?p=8154");
+        const data = await response.json();
+        setNowPlaying(data);
       } catch (error) {
         console.error("Failed to fetch now playing:", error);
       }
     };
 
     fetchNowPlaying();
-    const interval = setInterval(fetchNowPlaying, 30000);
+    const interval = setInterval(fetchNowPlaying, 15000);
     return () => clearInterval(interval);
   }, []);
 
@@ -71,8 +74,12 @@ const RadioPlayer = () => {
     <div className="flex flex-col items-center gap-6 p-6">
       {/* Album Art / Logo */}
       <div className="relative">
-        <div className={`w-48 h-48 rounded-3xl radio-gradient flex items-center justify-center ${isPlaying ? 'player-glow pulse-animation' : ''}`}>
-          <Radio className="w-20 h-20 text-primary-foreground" />
+        <div className={`w-48 h-48 rounded-3xl overflow-hidden radio-gradient flex items-center justify-center ${isPlaying ? 'player-glow pulse-animation' : ''}`}>
+          {nowPlaying?.art ? (
+            <img src={nowPlaying.art} alt="Album art" className="w-full h-full object-cover" />
+          ) : (
+            <Radio className="w-20 h-20 text-primary-foreground" />
+          )}
         </div>
         {isPlaying && (
           <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-card px-4 py-1 rounded-full shadow-lg">
@@ -90,8 +97,12 @@ const RadioPlayer = () => {
       {/* Now Playing Info */}
       <div className="text-center space-y-1">
         <p className="text-sm text-muted-foreground uppercase tracking-wider">Nu aan het spelen</p>
-        <h2 className="text-2xl font-semibold">{nowPlaying.artist}</h2>
-        <p className="text-muted-foreground">{nowPlaying.title}</p>
+        <h2 className="text-2xl font-semibold">{nowPlaying?.title || "GoedvoorGoed Radio"}</h2>
+        {nowPlaying && (
+          <p className="text-sm text-muted-foreground">
+            {nowPlaying.listeners} luisteraars • {nowPlaying.bitrate} kbps
+          </p>
+        )}
       </div>
 
       {/* Play Button */}
