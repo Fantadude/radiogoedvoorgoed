@@ -126,22 +126,23 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
       if (isPlaying) {
         audioRef.current.pause();
         setIsPlaying(false);
-        await stopForegroundService();
+        // Stop foreground service (non-blocking)
+        stopForegroundService().catch(console.error);
       } else {
-        // Start foreground service first for background playback
-        await startForegroundService(
-          nowPlaying?.title || "GoedvoorGoed Radio",
-          nowPlaying?.djusername ? `DJ: ${nowPlaying.djusername}` : "Live Radio"
-        );
-        
         // Reload stream to get fresh audio
         audioRef.current.src = APP_CONFIG.streamUrl;
         await audioRef.current.play();
         setIsPlaying(true);
+        
+        // Start foreground service for background playback (non-blocking)
+        startForegroundService(
+          nowPlaying?.title || "GoedvoorGoed Radio",
+          nowPlaying?.djusername ? `DJ: ${nowPlaying.djusername}` : "Live Radio"
+        ).catch(console.error);
       }
     } catch (error) {
       console.error("Playback error:", error);
-      await stopForegroundService();
+      setIsPlaying(false);
     } finally {
       setIsLoading(false);
     }
