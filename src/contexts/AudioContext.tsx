@@ -1,5 +1,6 @@
-import { createContext, useContext, useRef, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useRef, useState, useEffect, ReactNode, useCallback } from "react";
 import { APP_CONFIG } from "@/config/app";
+import { useForegroundService } from "@/hooks/useForegroundService";
 
 interface NowPlaying {
   title: string;
@@ -39,6 +40,8 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
+  
+  const { startForegroundService, updateForegroundService, stopForegroundService } = useForegroundService();
 
   // Create audio element once on mount
   useEffect(() => {
@@ -82,6 +85,14 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
             artwork: data.art ? [{ src: data.art, sizes: "512x512", type: "image/jpeg" }] : [],
           });
         }
+        
+        // Update foreground service notification if playing
+        if (isPlaying && data) {
+          updateForegroundService(
+            data.title || "GoedvoorGoed Radio",
+            data.djusername ? `DJ: ${data.djusername}` : "Live Radio"
+          );
+        }
       } catch (error) {
         console.error("Failed to fetch now playing:", error);
       }
@@ -90,7 +101,7 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
     fetchNowPlaying();
     const interval = setInterval(fetchNowPlaying, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isPlaying, updateForegroundService]);
 
   // Setup media session handlers for background playback controls
   useEffect(() => {
@@ -101,12 +112,13 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
         if (audioRef.current) {
           audioRef.current.pause();
           setIsPlaying(false);
+          stopForegroundService();
         }
       });
     }
-  }, []);
+  }, [stopForegroundService]);
 
-  const togglePlay = async () => {
+  const togglePlay = useCallback(async () => {
     if (!audioRef.current) return;
 
     setIsLoading(true);
@@ -114,7 +126,14 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
       if (isPlaying) {
         audioRef.current.pause();
         setIsPlaying(false);
+        await stopForegroundService();
       } else {
+        // Start foreground service first for background playback
+        await startForegroundService(
+          nowPlaying?.title || "GoedvoorGoed Radio",
+          nowPlaying?.djusername ? `DJ: ${nowPlaying.djusername}` : "Live Radio"
+        );
+        
         // Reload stream to get fresh audio
         audioRef.current.src = APP_CONFIG.streamUrl;
         await audioRef.current.play();
@@ -122,10 +141,11 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
       }
     } catch (error) {
       console.error("Playback error:", error);
+      await stopForegroundService();
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [isPlaying, nowPlaying, startForegroundService, stopForegroundService]);
 
   const toggleMute = () => {
     setIsMuted(!isMuted);
