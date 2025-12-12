@@ -1,6 +1,6 @@
-import { Radio, Music } from "lucide-react";
+import { Radio, Music, Podcast } from "lucide-react";
 
-type Tab = "radio" | "requests";
+type Tab = "radio" | "requests" | "podcasts";
 
 interface NavigationProps {
   activeTab: Tab;
@@ -11,6 +11,7 @@ const Navigation = ({ activeTab, onTabChange }: NavigationProps) => {
   const tabs = [
     { id: "radio" as Tab, label: "Radio", icon: Radio },
     { id: "requests" as Tab, label: "Verzoek", icon: Music },
+    { id: "podcasts" as Tab, label: "Podcasts", icon: Podcast },
   ];
 
   return (

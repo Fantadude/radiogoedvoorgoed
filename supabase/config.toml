@@ -17,3 +17,6 @@ port = 54323
 
 [functions.radiodj]
 verify_jwt = false
+
+[functions.podcasts]
+verify_jwt = false

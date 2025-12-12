@@ -36,6 +36,7 @@ serve(async (req) => {
       // Get songs from the songs table
       const limit = parseInt(url.searchParams.get('limit') || '100');
       const search = url.searchParams.get('search') || '';
+      const letter = url.searchParams.get('letter') || '';
       
       let query = `
         SELECT ID, artist, title, album, duration 
@@ -48,6 +49,15 @@ serve(async (req) => {
       if (search) {
         query += ` AND (artist LIKE ? OR title LIKE ?)`;
         params.push(`%${search}%`, `%${search}%`);
+      } else if (letter) {
+        // Filter by first letter of artist name
+        if (letter === '#') {
+          // Numbers and special characters
+          query += ` AND artist REGEXP '^[^A-Za-z]'`;
+        } else {
+          query += ` AND UPPER(LEFT(artist, 1)) = ?`;
+          params.push(letter.toUpperCase());
+        }
       }
       
       query += ` ORDER BY artist, title LIMIT ?`;

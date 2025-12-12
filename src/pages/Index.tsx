@@ -3,8 +3,9 @@ import Header from "@/components/Header";
 import Navigation from "@/components/Navigation";
 import RadioPlayer from "@/components/RadioPlayer";
 import SongBrowser from "@/components/SongBrowser";
+import PodcastBrowser from "@/components/PodcastBrowser";
 
-type Tab = "radio" | "requests";
+type Tab = "radio" | "requests" | "podcasts";
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<Tab>("radio");
@@ -17,6 +18,7 @@ const Index = () => {
         <div className="max-w-md mx-auto">
           {activeTab === "radio" && <RadioPlayer />}
           {activeTab === "requests" && <SongBrowser />}
+          {activeTab === "podcasts" && <PodcastBrowser />}
         </div>
       </main>
 
