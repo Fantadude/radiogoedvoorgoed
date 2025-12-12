@@ -221,16 +221,16 @@ const SongBrowser = () => {
             )}
           </div>
 
-          {/* Alphabet navigation */}
-          <div className="border rounded-lg p-2 bg-muted/30">
-            <ScrollArea className="w-full">
-              <div className="flex gap-1 pb-1">
+          {/* Alphabet navigation - horizontal scroll */}
+          <div className="border rounded-lg p-2 bg-muted/30 overflow-hidden">
+            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+              <div className="flex gap-1 pb-1 min-w-max">
                 {ALPHABET.map((letter) => (
                   <Button
                     key={letter}
                     variant={selectedLetter === letter && !isSearchMode ? "default" : "ghost"}
                     size="sm"
-                    className={`min-w-[32px] h-8 px-2 font-medium ${
+                    className={`min-w-[36px] h-9 px-2 font-medium shrink-0 ${
                       selectedLetter === letter && !isSearchMode 
                         ? "radio-gradient" 
                         : "hover:bg-primary/20"
@@ -242,7 +242,7 @@ const SongBrowser = () => {
                   </Button>
                 ))}
               </div>
-            </ScrollArea>
+            </div>
           </div>
 
           {/* Current view indicator */}
