@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Search, Music, Send, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
 
 interface Song {
   ID: number;
@@ -18,21 +17,26 @@ interface Song {
   duration: number;
 }
 
+const ALPHABET = ['#', ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i))];
+
 const SongBrowser = () => {
   const { toast } = useToast();
   const [songs, setSongs] = useState<Song[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedLetter, setSelectedLetter] = useState("A");
+  const [isSearchMode, setIsSearchMode] = useState(false);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [requestName, setRequestName] = useState("");
   const [requestMessage, setRequestMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchSongs = async (search = "") => {
+  const fetchSongsByLetter = useCallback(async (letter: string) => {
     setIsLoading(true);
+    setIsSearchMode(false);
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/radiodj?action=songs&limit=200&search=${encodeURIComponent(search)}`
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/radiodj?action=songs&limit=500&letter=${encodeURIComponent(letter)}`
       );
       
       if (!response.ok) {
@@ -54,23 +58,75 @@ const SongBrowser = () => {
         description: error.message || "Probeer het later nog eens",
         variant: "destructive",
       });
+      setSongs([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [toast]);
+
+  const fetchSongsBySearch = async (search: string) => {
+    if (!search.trim()) {
+      setIsSearchMode(false);
+      fetchSongsByLetter(selectedLetter);
+      return;
+    }
+    
+    setIsLoading(true);
+    setIsSearchMode(true);
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/radiodj?action=songs&limit=500&search=${encodeURIComponent(search)}`
+      );
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch songs');
+      }
+      
+      const result = await response.json();
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      
+      setSongs(result.songs || []);
+    } catch (error: any) {
+      console.error('Error searching songs:', error);
+      toast({
+        title: "Zoeken mislukt",
+        description: error.message || "Probeer het later nog eens",
+        variant: "destructive",
+      });
+      setSongs([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchSongs();
-  }, []);
+    fetchSongsByLetter(selectedLetter);
+  }, [selectedLetter, fetchSongsByLetter]);
+
+  const handleLetterClick = (letter: string) => {
+    setSelectedLetter(letter);
+    setSearchQuery("");
+    setIsSearchMode(false);
+  };
 
   const handleSearch = () => {
-    fetchSongs(searchQuery);
+    fetchSongsBySearch(searchQuery);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleSearch();
     }
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setIsSearchMode(false);
+    fetchSongsByLetter(selectedLetter);
   };
 
   const formatDuration = (seconds: number) => {
@@ -139,10 +195,11 @@ const SongBrowser = () => {
             Nummers zoeken
           </CardTitle>
           <CardDescription>
-            Zoek op artiest of titel
+            Blader op letter of zoek op artiest/titel
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Search bar */}
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -157,44 +214,96 @@ const SongBrowser = () => {
             <Button onClick={handleSearch} disabled={isLoading}>
               <Search className="w-4 h-4" />
             </Button>
-            <Button variant="outline" onClick={() => fetchSongs(searchQuery)} disabled={isLoading}>
+            {isSearchMode && (
+              <Button variant="outline" onClick={handleClearSearch}>
+                Wissen
+              </Button>
+            )}
+          </div>
+
+          {/* Alphabet navigation */}
+          <div className="border rounded-lg p-2 bg-muted/30">
+            <ScrollArea className="w-full">
+              <div className="flex gap-1 pb-1">
+                {ALPHABET.map((letter) => (
+                  <Button
+                    key={letter}
+                    variant={selectedLetter === letter && !isSearchMode ? "default" : "ghost"}
+                    size="sm"
+                    className={`min-w-[32px] h-8 px-2 font-medium ${
+                      selectedLetter === letter && !isSearchMode 
+                        ? "radio-gradient" 
+                        : "hover:bg-primary/20"
+                    }`}
+                    onClick={() => handleLetterClick(letter)}
+                    disabled={isLoading}
+                  >
+                    {letter}
+                  </Button>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+
+          {/* Current view indicator */}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">
+              {isSearchMode 
+                ? `Zoekresultaten voor "${searchQuery}"` 
+                : `Artiesten beginnend met "${selectedLetter}"`
+              }
+            </span>
+            <Button 
+              variant="ghost" 
+              size="sm"
+              onClick={() => isSearchMode ? fetchSongsBySearch(searchQuery) : fetchSongsByLetter(selectedLetter)} 
+              disabled={isLoading}
+            >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
 
-          <ScrollArea className="h-[400px] rounded-md border border-border">
-            {isLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              </div>
-            ) : songs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
-                <Music className="w-12 h-12 mb-2 opacity-50" />
-                <p>Geen nummers gevonden</p>
-                <p className="text-sm">Probeer een andere zoekopdracht</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {songs.map((song) => (
-                  <button
-                    key={song.ID}
-                    onClick={() => setSelectedSong(song)}
-                    className="w-full p-3 text-left hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{song.title}</p>
-                        <p className="text-sm text-muted-foreground truncate">{song.artist}</p>
+          {/* Songs list */}
+          <div className="border rounded-lg bg-background/50 min-h-[350px] max-h-[400px] overflow-hidden">
+            <ScrollArea className="h-[350px]">
+              {isLoading ? (
+                <div className="flex items-center justify-center h-[350px]">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              ) : songs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-[350px] text-muted-foreground p-4">
+                  <Music className="w-12 h-12 mb-2 opacity-50" />
+                  <p className="font-medium">Geen nummers gevonden</p>
+                  <p className="text-sm text-center">
+                    {isSearchMode 
+                      ? "Probeer een andere zoekopdracht" 
+                      : `Geen artiesten met de letter "${selectedLetter}"`
+                    }
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {songs.map((song) => (
+                    <button
+                      key={song.ID}
+                      onClick={() => setSelectedSong(song)}
+                      className="w-full p-3 text-left hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{song.title}</p>
+                          <p className="text-sm text-muted-foreground truncate">{song.artist}</p>
+                        </div>
+                        <span className="text-xs text-muted-foreground shrink-0">
+                          {formatDuration(song.duration)}
+                        </span>
                       </div>
-                      <span className="text-xs text-muted-foreground shrink-0">
-                        {formatDuration(song.duration)}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </div>
           
           <p className="text-xs text-muted-foreground text-center">
             {songs.length} nummers gevonden
