@@ -75,7 +75,7 @@ const PodcastBrowser = () => {
     };
   }, []);
 
-  // Audio player setup
+  // Audio player setup - only create once
   useEffect(() => {
     const audio = new Audio();
     audioRef.current = audio;
@@ -98,15 +98,10 @@ const PodcastBrowser = () => {
       }
     };
     
-    const handleError = () => {
-      // Only show error if component is mounted and we were trying to play something
-      if (isMountedRef.current && playingEpisode) {
-        toast({
-          title: "Afspelen mislukt",
-          description: "Kon de podcast niet laden",
-          variant: "destructive",
-        });
-        setIsPlaying(false);
+    const handleError = (e: Event) => {
+      // Only show error if component is mounted and audio has a source
+      if (isMountedRef.current && audio.src && audio.src !== '') {
+        console.error('Podcast audio error:', e);
       }
     };
     
@@ -124,7 +119,7 @@ const PodcastBrowser = () => {
       audio.pause();
       audio.src = "";
     };
-  }, [toast, playingEpisode]);
+  }, []);
 
   // Register stop callback so radio can stop podcast
   useEffect(() => {
