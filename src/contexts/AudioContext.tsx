@@ -21,6 +21,7 @@ interface AudioContextType {
   togglePlay: () => Promise<void>;
   toggleMute: () => void;
   setVolume: (volume: number) => void;
+  stopPodcastCallback: React.MutableRefObject<(() => void) | null>;
 }
 
 const AudioContext = createContext<AudioContextType | null>(null);
@@ -35,6 +36,7 @@ export const useAudio = () => {
 
 export const AudioProvider = ({ children }: { children: ReactNode }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const stopPodcastCallback = useRef<(() => void) | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolumeState] = useState(80);
   const [isMuted, setIsMuted] = useState(false);
@@ -129,6 +131,11 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
         // Stop foreground service (non-blocking)
         stopForegroundService().catch(console.error);
       } else {
+        // Stop podcast if it's playing
+        if (stopPodcastCallback.current) {
+          stopPodcastCallback.current();
+        }
+        
         // Reload stream to get fresh audio
         audioRef.current.src = APP_CONFIG.streamUrl;
         await audioRef.current.play();
@@ -168,6 +175,7 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
         togglePlay,
         toggleMute,
         setVolume,
+        stopPodcastCallback,
       }}
     >
       {children}

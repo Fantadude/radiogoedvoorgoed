@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
+import { useAudio } from "@/contexts/AudioContext";
 
 interface PodcastEpisode {
   id: string;
@@ -20,6 +21,7 @@ const EPISODES_PER_PAGE = 5;
 
 const PodcastBrowser = () => {
   const { toast } = useToast();
+  const { isPlaying: radioIsPlaying, togglePlay: toggleRadio, stopPodcastCallback } = useAudio();
   const [episodes, setEpisodes] = useState<PodcastEpisode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -30,6 +32,7 @@ const PodcastBrowser = () => {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const isMountedRef = useRef(true);
 
   const fetchPodcasts = async () => {
     setIsLoading(true);
@@ -64,7 +67,12 @@ const PodcastBrowser = () => {
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     fetchPodcasts();
+    
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   // Audio player setup
@@ -72,35 +80,81 @@ const PodcastBrowser = () => {
     const audio = new Audio();
     audioRef.current = audio;
     
-    audio.addEventListener('timeupdate', () => {
-      setCurrentTime(audio.currentTime);
-    });
+    const handleTimeUpdate = () => {
+      if (isMountedRef.current) {
+        setCurrentTime(audio.currentTime);
+      }
+    };
     
-    audio.addEventListener('loadedmetadata', () => {
-      setDuration(audio.duration);
-    });
+    const handleLoadedMetadata = () => {
+      if (isMountedRef.current) {
+        setDuration(audio.duration);
+      }
+    };
     
-    audio.addEventListener('ended', () => {
-      setIsPlaying(false);
-    });
+    const handleEnded = () => {
+      if (isMountedRef.current) {
+        setIsPlaying(false);
+      }
+    };
     
-    audio.addEventListener('error', () => {
-      toast({
-        title: "Afspelen mislukt",
-        description: "Kon de podcast niet laden",
-        variant: "destructive",
-      });
-      setIsPlaying(false);
-    });
+    const handleError = () => {
+      // Only show error if component is mounted and we were trying to play something
+      if (isMountedRef.current && playingEpisode) {
+        toast({
+          title: "Afspelen mislukt",
+          description: "Kon de podcast niet laden",
+          variant: "destructive",
+        });
+        setIsPlaying(false);
+      }
+    };
+    
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('error', handleError);
     
     return () => {
+      // Clean up without triggering error
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('error', handleError);
       audio.pause();
       audio.src = "";
     };
-  }, [toast]);
+  }, [toast, playingEpisode]);
+
+  // Register stop callback so radio can stop podcast
+  useEffect(() => {
+    stopPodcastCallback.current = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+      }
+    };
+    
+    return () => {
+      stopPodcastCallback.current = null;
+    };
+  }, [stopPodcastCallback]);
+
+  // Stop podcast when radio starts playing
+  useEffect(() => {
+    if (radioIsPlaying && isPlaying && audioRef.current) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [radioIsPlaying, isPlaying]);
 
   const handlePlayEpisode = async (episode: PodcastEpisode) => {
     if (!audioRef.current) return;
+    
+    // Stop radio if it's playing
+    if (radioIsPlaying) {
+      await toggleRadio();
+    }
     
     if (playingEpisode?.id === episode.id) {
       // Toggle play/pause for same episode
