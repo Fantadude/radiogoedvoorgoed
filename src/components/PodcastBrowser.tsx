@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Podcast, Play, Pause, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { useAudio } from "@/contexts/AudioContext";
+import { useAudioOutputChange } from "@/hooks/useAudioOutputChange";
 
 interface PodcastEpisode {
   id: string;
@@ -142,6 +143,16 @@ const PodcastBrowser = () => {
       setIsPlaying(false);
     }
   }, [radioIsPlaying, isPlaying]);
+
+  // Pause podcast when Bluetooth disconnects
+  const handleAudioOutputChange = useCallback(() => {
+    if (audioRef.current && isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  }, [isPlaying]);
+
+  useAudioOutputChange(handleAudioOutputChange);
 
   const handlePlayEpisode = async (episode: PodcastEpisode) => {
     if (!audioRef.current) return;
