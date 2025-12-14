@@ -1,6 +1,7 @@
 import { createContext, useContext, useRef, useState, useEffect, ReactNode, useCallback } from "react";
 import { APP_CONFIG } from "@/config/app";
 import { useForegroundService } from "@/hooks/useForegroundService";
+import { useAudioOutputChange } from "@/hooks/useAudioOutputChange";
 
 interface NowPlaying {
   title: string;
@@ -119,6 +120,22 @@ export const AudioProvider = ({ children }: { children: ReactNode }) => {
       });
     }
   }, [stopForegroundService]);
+
+  // Pause all audio when Bluetooth disconnects
+  const handleAudioOutputChange = useCallback(() => {
+    // Pause radio
+    if (audioRef.current && isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+      stopForegroundService().catch(console.error);
+    }
+    // Pause podcast
+    if (stopPodcastCallback.current) {
+      stopPodcastCallback.current();
+    }
+  }, [isPlaying, stopForegroundService]);
+
+  useAudioOutputChange(handleAudioOutputChange);
 
   const togglePlay = useCallback(async () => {
     if (!audioRef.current) return;
