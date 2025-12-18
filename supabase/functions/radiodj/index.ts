@@ -8,7 +8,7 @@ const corsHeaders = {
 
 // Database configuration
 const DB_CONFIG = {
-  hostname: "86.84.18.58",
+  hostname: "radiogvg.chickenkiller.com",
   port: 3306,
   username: "request",
   password: "user",
