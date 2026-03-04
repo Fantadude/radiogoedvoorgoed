@@ -1,8 +1,11 @@
 package com.example.radiogvg.ui.screens
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.content.res.Configuration
-import android.media.AudioAttributes
-import android.media.MediaPlayer
+import android.os.IBinder
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -37,6 +40,7 @@ import coil.compose.AsyncImage
 import com.example.radiogvg.R
 import com.example.radiogvg.data.CentovaNowPlaying
 import com.example.radiogvg.network.RadioApiClient
+import com.example.radiogvg.service.MediaPlaybackService
 import com.example.radiogvg.ui.theme.LightBlueLight
 import com.example.radiogvg.ui.theme.LightBluePrimary
 import com.example.radiogvg.ui.theme.LightBlueSecondary
@@ -55,7 +59,9 @@ fun PlayerScreen() {
 
     val apiClient = remember { RadioApiClient() }
 
-    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    // Service binding
+    var mediaService by remember { mutableStateOf<MediaPlaybackService?>(null) }
+    var isServiceBound by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(0.8f) }
@@ -64,6 +70,35 @@ fun PlayerScreen() {
 
     val lifecycleOwner = LocalLifecycleOwner.current
 
+    // Service connection
+    val serviceConnection = remember {
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                val binder = service as MediaPlaybackService.LocalBinder
+                mediaService = binder.getService()
+                isServiceBound = true
+                isPlaying = mediaService?.isPlaying() ?: false
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {
+                mediaService = null
+                isServiceBound = false
+            }
+        }
+    }
+
+    // Bind to service on startup
+    DisposableEffect(context) {
+        val intent = Intent(context, MediaPlaybackService::class.java)
+        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+
+        onDispose {
+            if (isServiceBound) {
+                context.unbindService(serviceConnection)
+            }
+        }
+    }
+
     // Update now playing info periodically
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -71,6 +106,14 @@ fun PlayerScreen() {
                 val result = apiClient.getNowPlaying()
                 result.onSuccess { source ->
                     nowPlaying = source
+                    // Update service metadata if playing
+                    if (isServiceBound) {
+                        mediaService?.updateMetadata(
+                            title = source?.title ?: "radiogoedvoorgoed",
+                            artist = source?.artist ?: "",
+                            artUrl = source?.art
+                        )
+                    }
                     errorMessage = null
                 }.onFailure {
                     // Silently fail - keep showing last info
@@ -87,15 +130,11 @@ fun PlayerScreen() {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE -> {
-                    // Don't stop playback - let it continue in background
+                    // Don't stop playback - service handles background
                 }
                 Lifecycle.Event.ON_RESUME -> {
-                    // Refresh now playing when coming back
-                }
-                Lifecycle.Event.ON_DESTROY -> {
-                    mediaPlayer?.release()
-                    mediaPlayer = null
-                    isPlaying = false
+                    // Refresh playing state when coming back
+                    isPlaying = mediaService?.isPlaying() ?: false
                 }
                 else -> {}
             }
@@ -103,57 +142,33 @@ fun PlayerScreen() {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            mediaPlayer?.release()
         }
     }
 
     fun togglePlayback() {
-        if (isPlaying) {
-            mediaPlayer?.pause()
-            isPlaying = false
-        } else {
-            if (mediaPlayer == null) {
-                isLoading = true
-                errorMessage = null
-
-                try {
-                    val newPlayer = MediaPlayer().apply {
-                        setAudioAttributes(
-                            AudioAttributes.Builder()
-                                .setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                                .build()
-                        )
-                        setDataSource(RadioApiClient.STREAM_URL)
-                        setOnPreparedListener { mp ->
-                            mp.start()
-                            mp.setVolume(volume, volume)
-                            isPlaying = true
-                            isLoading = false
-                        }
-                        setOnErrorListener { _, what, extra ->
-                            errorMessage = "Playback error: $what"
-                            isLoading = false
-                            isPlaying = false
-                            true
-                        }
-                        prepareAsync()
-                    }
-                    mediaPlayer = newPlayer
-                } catch (e: Exception) {
-                    errorMessage = "Failed to load stream"
-                    isLoading = false
-                }
+        if (isServiceBound) {
+            isLoading = true
+            if (mediaService?.isPlaying() == true) {
+                mediaService?.pause()
+                isPlaying = false
             } else {
-                mediaPlayer?.start()
+                // Start the service first
+                val intent = Intent(context, MediaPlaybackService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+                mediaService?.play()
                 isPlaying = true
             }
+            isLoading = false
         }
     }
 
     fun updateVolume(newVolume: Float) {
         volume = newVolume.coerceIn(0f, 1f)
-        mediaPlayer?.setVolume(volume, volume)
+        mediaService?.setVolume(volume)
     }
 
     // Extract artist and title from Centova response
@@ -162,7 +177,6 @@ fun PlayerScreen() {
     val albumArtUrl = nowPlaying?.art
 
     if (isLandscape) {
-        // Landscape layout - compact, horizontal
         LandscapePlayerLayout(
             title = title,
             artist = artist,
@@ -176,7 +190,6 @@ fun PlayerScreen() {
             onVolumeChange = { updateVolume(it) }
         )
     } else {
-        // Portrait layout - original vertical layout
         PortraitPlayerLayout(
             title = title,
             artist = artist,
@@ -209,34 +222,25 @@ private fun PortraitPlayerLayout(
         modifier = Modifier
             .fillMaxSize()
             .background(OffWhite)
-            .padding(horizontal = 12.dp)
-            .verticalScroll(rememberScrollState()),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Radio Logo (small, at top)
-        Image(
-            painter = painterResource(id = R.drawable.radio_logo),
-            contentDescription = "radiogoedvoorgoed",
-            modifier = Modifier
-                .size(48.dp)
-                .padding(top = 4.dp),
-            contentScale = ContentScale.Fit
-        )
-
-        // App name below logo
+        // App name header
         Text(
             text = "radiogoedvoorgoed",
-            style = MaterialTheme.typography.titleMedium,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
-            color = LightBluePrimary,
-            modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
+            color = LightBluePrimary
         )
 
-        // Album Art - takes most space (flexible)
+        // Album Art with Logo overlay
         Box(
             modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .padding(horizontal = 32.dp),
             contentAlignment = Alignment.Center
         ) {
             AlbumArtWithLogo(
@@ -245,65 +249,50 @@ private fun PortraitPlayerLayout(
                 title = title,
                 artworkUrl = albumArtUrl,
                 fallbackLogo = painterResource(id = R.drawable.radio_logo),
-                maxHeightFraction = 0.85f
+                maxHeightFraction = 0.7f
             )
         }
 
-        // Track Info Card (compact)
+        // Track Info
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = White)
         ) {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Song Title
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextDark,
-                    textAlign = TextAlign.Center,
-                    maxLines = 2
+                    textAlign = TextAlign.Center
                 )
-
-                // Artist
                 if (artist.isNotBlank()) {
                     Text(
                         text = artist,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodyLarge,
                         color = TextMedium,
-                        maxLines = 1
+                        textAlign = TextAlign.Center
                     )
                 }
-
-                // Live indicator / Paused text
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (isPlaying) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF4CAF50))
-                        )
+                nowPlaying?.let { np ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (isPlaying) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(Color.Red, CircleShape)
+                            )
+                        }
                         Text(
-                            text = "Live • ${nowPlaying?.listeners ?: 0} listeners",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextMedium
-                        )
-                    } else {
-                        Text(
-                            text = "Paused",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = if (isPlaying) "Live • ${np.listeners} listeners" else "Paused",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = TextMedium
                         )
                     }
@@ -311,153 +300,35 @@ private fun PortraitPlayerLayout(
             }
         }
 
-        // Recently Played & Coming Soon (horizontal, compact)
-        if (!nowPlaying?.history.isNullOrEmpty() || !nowPlaying?.comingsoon.isNullOrEmpty()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = LightBlueSecondary.copy(alpha = 0.15f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Recently Played Column
-                    if (!nowPlaying?.history.isNullOrEmpty()) {
-                        Column(
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = "Recently",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = LightBluePrimary
-                            )
-                            nowPlaying?.history?.take(3)?.forEach { track ->
-                                Text(
-                                    text = track,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextDark,
-                                    maxLines = 1,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-
-                    // Coming Soon Column
-                    if (!nowPlaying?.comingsoon.isNullOrEmpty()) {
-                        Column(
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = "Coming Soon",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Medium,
-                                color = LightBluePrimary
-                            )
-                            nowPlaying?.comingsoon?.take(3)?.forEach { track ->
-                                Text(
-                                    text = track,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = TextDark,
-                                    maxLines = 1,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Error Message (if any)
+        // Error Message
         errorMessage?.let { error ->
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE5E5))
             ) {
                 Text(
                     text = error,
-                    modifier = Modifier.padding(8.dp),
-                    color = Color(0xFFE57373),
-                    style = MaterialTheme.typography.bodySmall
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD32F2F),
+                    textAlign = TextAlign.Center
                 )
             }
         }
 
-        // Play Button (centered, prominent)
-        FilledIconButton(
-            onClick = onTogglePlayback,
-            modifier = Modifier
-                .size(64.dp)
-                .clip(CircleShape)
-                .padding(vertical = 8.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = LightBluePrimary
-            )
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(28.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(32.dp),
-                    tint = Color.White
-                )
-            }
-        }
+        // Play/Pause Button
+        PlayPauseButton(
+            isPlaying = isPlaying,
+            isLoading = isLoading,
+            onTogglePlayback = onTogglePlayback
+        )
 
-        // Volume Slider (compact)
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = White)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = if (volume == 0f) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
-                    contentDescription = "Volume",
-                    tint = LightBluePrimary,
-                    modifier = Modifier.size(20.dp)
-                )
-
-                Slider(
-                    value = volume,
-                    onValueChange = onVolumeChange,
-                    modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(
-                        thumbColor = LightBluePrimary,
-                        activeTrackColor = LightBluePrimary,
-                        inactiveTrackColor = LightBlueLight
-                    )
-                )
-
-                Text(
-                    text = "${(volume * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium,
-                    color = TextDark,
-                    modifier = Modifier.width(36.dp)
-                )
-            }
-        }
+        // Volume Control
+        VolumeControl(
+            volume = volume,
+            onVolumeChange = onVolumeChange
+        )
     }
 }
 
@@ -482,7 +353,7 @@ private fun LandscapePlayerLayout(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left side: Album Art (small, compact - fixed size)
+        // Left side: Album Art
         Box(
             modifier = Modifier
                 .sizeIn(maxHeight = 180.dp, maxWidth = 180.dp)
@@ -549,250 +420,234 @@ private fun LandscapePlayerLayout(
                         if (isPlaying) {
                             Box(
                                 modifier = Modifier
-                                    .size(4.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF4CAF50))
-                            )
-                            Text(
-                                text = "Live • ${nowPlaying?.listeners ?: 0}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextMedium
-                            )
-                        } else {
-                            Text(
-                                text = "Paused",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = TextMedium
+                                    .size(6.dp)
+                                    .background(Color.Red, CircleShape)
                             )
                         }
-                    }
-                }
-            }
-
-            // Recently Played (horizontal chips)
-            if (!nowPlaying?.history.isNullOrEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = LightBlueSecondary.copy(alpha = 0.15f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
                         Text(
-                            text = "Recent:",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = LightBluePrimary,
-                            fontWeight = FontWeight.Medium
+                            text = if (isPlaying) "Live • ${nowPlaying?.listeners ?: 0} listeners" else "Paused",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextMedium
                         )
-                        nowPlaying?.history?.take(2)?.forEach { track ->
-                            Text(
-                                text = "• $track",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = TextDark,
-                                maxLines = 1,
-                                fontSize = 10.sp
-                            )
-                        }
                     }
                 }
             }
 
             // Error Message
             errorMessage?.let { error ->
-                Text(
-                    text = error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFE57373)
-                )
-            }
-
-            // Play Button
-            FilledIconButton(
-                onClick = onTogglePlayback,
-                modifier = Modifier.size(56.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = LightBluePrimary
-                )
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        modifier = Modifier.size(28.dp),
-                        tint = Color.White
-                    )
-                }
-            }
-
-            // Volume Slider
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = White)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(6.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE5E5))
                 ) {
-                    Icon(
-                        imageVector = if (volume == 0f) Icons.AutoMirrored.Filled.VolumeMute else Icons.AutoMirrored.Filled.VolumeUp,
-                        contentDescription = "Volume",
-                        tint = LightBluePrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Slider(
-                        value = volume,
-                        onValueChange = onVolumeChange,
-                        modifier = Modifier.weight(1f),
-                        colors = SliderDefaults.colors(
-                            thumbColor = LightBluePrimary,
-                            activeTrackColor = LightBluePrimary,
-                            inactiveTrackColor = LightBlueLight
-                        )
-                    )
                     Text(
-                        text = "${(volume * 100).toInt()}%",
+                        text = error,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextDark,
-                        modifier = Modifier.width(32.dp)
+                        color = Color(0xFFD32F2F),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
                     )
                 }
             }
+
+            // Play/Pause Button (compact)
+            PlayPauseButton(
+                isPlaying = isPlaying,
+                isLoading = isLoading,
+                onTogglePlayback = onTogglePlayback,
+                modifier = Modifier.size(56.dp)
+            )
+
+            // Volume Control (compact)
+            VolumeControl(
+                volume = volume,
+                onVolumeChange = onVolumeChange,
+                compact = true
+            )
         }
     }
 }
 
 @Composable
-fun AlbumArtWithLogo(
+private fun PlayPauseButton(
+    isPlaying: Boolean,
+    isLoading: Boolean,
+    onTogglePlayback: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (isPlaying) 1.0f else 0.95f,
+        animationSpec = tween(200),
+        label = "button_scale"
+    )
+
+    Button(
+        onClick = onTogglePlayback,
+        enabled = !isLoading,
+        modifier = modifier
+            .size(80.dp)
+            .scale(scale),
+        shape = CircleShape,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = LightBluePrimary,
+            disabledContainerColor = LightBlueLight
+        )
+    ) {
+        if (isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(32.dp),
+                color = White,
+                strokeWidth = 3.dp
+            )
+        } else {
+            Icon(
+                imageVector = if (isPlaying) {
+                    Icons.Filled.PlayArrow
+                } else {
+                    Icons.Filled.PlayArrow
+                },
+                contentDescription = if (isPlaying) "Pause" else "Play",
+                modifier = Modifier.size(40.dp),
+                tint = White
+            )
+        }
+    }
+}
+
+@Composable
+private fun VolumeControl(
+    volume: Float,
+    onVolumeChange: (Float) -> Unit,
+    compact: Boolean = false
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(
+            imageVector = if (volume > 0) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeMute,
+            contentDescription = "Volume",
+            tint = TextMedium,
+            modifier = Modifier.size(if (compact) 20.dp else 24.dp)
+        )
+
+        Slider(
+            value = volume,
+            onValueChange = onVolumeChange,
+            modifier = Modifier.weight(1f),
+            colors = SliderDefaults.colors(
+                thumbColor = LightBluePrimary,
+                activeTrackColor = LightBluePrimary,
+                inactiveTrackColor = LightBlueLight
+            )
+        )
+
+        Text(
+            text = "${(volume * 100).toInt()}%",
+            style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = TextDark,
+            modifier = Modifier.width(if (compact) 32.dp else 36.dp)
+        )
+    }
+}
+
+@Composable
+private fun AlbumArtWithLogo(
     isPlaying: Boolean,
     artist: String,
     title: String,
     artworkUrl: String?,
     fallbackLogo: androidx.compose.ui.graphics.painter.Painter,
-    maxHeightFraction: Float = 0.85f
+    maxHeightFraction: Float
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-
+    val infiniteTransition = rememberInfiniteTransition(label = "animation")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (isPlaying) 1.02f else 1f,
+        targetValue = 1.05f,
         animationSpec = infiniteRepeatable(
             animation = tween(2000, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "scale"
+        label = "pulse_scale"
     )
 
-    // State for album art URL
-    var albumArtUrl by remember { mutableStateOf<String?>(artworkUrl) }
-    var isLoadingArt by remember { mutableStateOf(false) }
-
-    // Fetch album art when track changes or artworkUrl from stream changes
-    LaunchedEffect(artworkUrl, artist, title) {
-        if (!artworkUrl.isNullOrBlank()) {
-            albumArtUrl = artworkUrl
-            return@LaunchedEffect
-        }
-
-        if (artist.isNotBlank() && title.isNotBlank() && title != "radiogoedvoorgoed") {
-            isLoadingArt = true
-            try {
-                val deezerSearchTerm = java.net.URLEncoder.encode("$artist $title", "UTF-8")
-                val deezerUrl = java.net.URL("https://api.deezer.com/search?q=$deezerSearchTerm&limit=1")
-                val deezerConnection = deezerUrl.openConnection()
-                deezerConnection.setRequestProperty("User-Agent", "radiogoedvoorgoed-Android-App")
-                deezerConnection.connectTimeout = 5000
-                deezerConnection.readTimeout = 5000
-
-                val deezerReader = java.io.BufferedReader(java.io.InputStreamReader(deezerConnection.getInputStream()))
-                val deezerResponse = deezerReader.readText()
-                deezerReader.close()
-
-                val coverRegex = """"cover":"([^"]+)"|"cover_big":"([^"]+)"|"cover_medium":"([^"]+)"|"cover_xl":"([^"]+)"""".toRegex()
-                val deezerMatch = coverRegex.find(deezerResponse)
-
-                if (deezerMatch != null) {
-                    albumArtUrl = deezerMatch.groupValues.drop(1).firstOrNull { it.isNotBlank() }
-                        ?.replace("\\/", "/")
-                }
-
-                if (albumArtUrl == null) {
-                    val mbSearchTerm = java.net.URLEncoder.encode("$artist $title", "UTF-8")
-                    val mbUrl = java.net.URL("https://musicbrainz.org/ws/2/recording/?query=$mbSearchTerm&limit=1&fmt=json")
-                    val mbConnection = mbUrl.openConnection()
-                    mbConnection.setRequestProperty("User-Agent", "radiogoedvoorgoed-Android-App/1.0")
-                    mbConnection.connectTimeout = 5000
-                    mbConnection.readTimeout = 5000
-
-                    val mbReader = java.io.BufferedReader(java.io.InputStreamReader(mbConnection.getInputStream()))
-                    val mbResponse = mbReader.readText()
-                    mbReader.close()
-
-                    val releaseRegex = """"releases":\s*\[.*?"id":\s*"([^"]+)"""".toRegex()
-                    val releaseMatch = releaseRegex.find(mbResponse)
-
-                    if (releaseMatch != null) {
-                        val releaseId = releaseMatch.groupValues[1]
-                        albumArtUrl = "https://coverartarchive.org/release/$releaseId/front"
-                    }
-                }
-            } catch (e: Exception) {
-                albumArtUrl = null
-            }
-            isLoadingArt = false
-        } else {
-            albumArtUrl = null
-        }
-    }
-
     Box(
-        modifier = Modifier
-            .fillMaxHeight(maxHeightFraction)
-            .wrapContentWidth()
-            .aspectRatio(1f)
-            .scale(if (isPlaying) scale else 1f)
-            .clip(RoundedCornerShape(20.dp)),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        if (albumArtUrl != null) {
+        // Album art or visualizer
+        if (artworkUrl != null) {
             AsyncImage(
-                model = albumArtUrl,
-                contentDescription = "$artist - $title",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                placeholder = fallbackLogo,
-                error = fallbackLogo
-            )
-        } else {
-            Image(
-                painter = fallbackLogo,
-                contentDescription = "radiogoedvoorgoed Logo",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-        }
-
-        if (isLoadingArt) {
-            Box(
+                model = artworkUrl,
+                contentDescription = "Album Art",
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.3f)),
+                    .clip(RoundedCornerShape(16.dp)),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            // Animated placeholder when playing, static when paused
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight(maxHeightFraction)
+                    .aspectRatio(1f)
+                    .scale(if (isPlaying) scale else 1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(LightBlueLight),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(
-                    color = White,
-                    modifier = Modifier.size(32.dp)
-                )
+                if (isPlaying) {
+                    // Visualizer bars
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        repeat(4) { index ->
+                            val barScale by infiniteTransition.animateFloat(
+                                initialValue = 0.3f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(
+                                        500 + index * 100,
+                                        easing = FastOutSlowInEasing
+                                    ),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "bar_$index"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(8.dp)
+                                    .heightIn(max = 60.dp)
+                                    .fillMaxHeight(barScale)
+                                    .background(White, RoundedCornerShape(4.dp))
+                            )
+                        }
+                    }
+                } else {
+                    // Music note icon
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "radiogoedvoorgoed",
+                        modifier = Modifier.size(64.dp),
+                        tint = LightBluePrimary
+                    )
+                }
             }
         }
+
+        // Logo overlay (semi-transparent)
+        Image(
+            painter = fallbackLogo,
+            contentDescription = "radiogoedvoorgoed",
+            modifier = Modifier
+                .fillMaxWidth(0.4f)
+                .aspectRatio(1f)
+                .align(Alignment.Center),
+            alpha = 0.7f
+        )
     }
 }

@@ -47,8 +47,31 @@ jobs:
     - name: Upload debug APK
       uses: actions/upload-artifact@v4
       with:
-        name: debug-apk
-        path: app/build/outputs/apk/debug/*.apk
+        name: radiogoedvoorgoed-debug-apk
+        path: app/build/outputs/apk/debug/app-debug.apk
+        if-no-files-found: error
+
+    - name: Upload APK to GitHub Releases (on main branch only)
+      if: github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v2
+      with:
+        files: app/build/outputs/apk/debug/app-debug.apk
+        tag_name: v${{ github.run_number }}
+        name: Debug Build ${{ github.run_number }}
+        body: |
+          Automated debug build from commit ${{ github.sha }}
+          
+          **Features:**
+          - MediaSession for lock screen controls
+          - Foreground service for background playback
+          - Bluetooth media button support
+          - Notification with play/pause controls
+          
+          Download the APK below to test on your Android device.
+        draft: true
+        prerelease: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Uncomment to build release (requires signing setup)
   # build-release:
@@ -80,7 +103,7 @@ jobs:
   #       alias: ${{ secrets.ALIAS }}
   #       keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
   #       keyPassword: ${{ secrets.KEY_PASSWORD }}
-  #   
+ #   
   #   - name: Upload release APK
   #     uses: actions/upload-artifact@v4
   #     with:
