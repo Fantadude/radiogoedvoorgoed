@@ -195,9 +195,24 @@
 }
 
 .radio-status {
-  color: var(--success-color);
   font-size: 0.9rem;
   font-weight: 500;
+  color: var(--warning-color, #fbbf24);
+}
+
+.live-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--success-color, #10B981);
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: blink 2s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .player-controls {
@@ -258,8 +273,8 @@
 }
 
 .spinner {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: 3px solid rgba(255, 255, 255, 0.3);
   border-top-color: white;
   border-radius: 50%;

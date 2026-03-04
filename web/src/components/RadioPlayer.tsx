@@ -12,51 +12,49 @@ export default function RadioPlayer() {
   const [currentTrack, setCurrentTrack] = useState('radiogoedvoorgoed');
   const [currentArtist, setCurrentArtist] = useState('Live Stream');
   const [listeners, setListeners] = useState(0);
+  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize audio element with settings for continuous playback
+  // Keep audioRef in sync with audioElement state
   useEffect(() => {
-    // Create audio element with settings that allow continuous streaming
+    audioRef.current = audioElement;
+  }, [audioElement]);
+
+  // Create a fresh audio element for playing
+  const createAudioElement = () => {
     const audio = new Audio();
     audio.src = RADIO_CONFIG.streamUrl;
     audio.volume = volume;
-
-    // CRITICAL: Use 'none' preload and set audio type for streaming
     audio.preload = 'none';
-
-    // Set audio type hint for streaming
     audio.setAttribute('type', 'audio/mpeg');
-
-    // Prevent browser from pausing audio when it thinks it's "done"
-    audio.loop = false; // Stream handles its own looping
-    audio.autoplay = false;
-
-    // @ts-ignore - AudioSession API is not yet fully standardized in TypeScript
+    
+    // @ts-ignore
     if ('audioSession' in audio) {
       // @ts-ignore
       audio.audioSession = { type: 'playback' };
     }
+    
+    return audio;
+  };
 
-    audioRef.current = audio;
-
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-        audioRef.current.load();
-        audioRef.current = null;
-      }
-    };
-  }, []);
+  // Cleanup audio element completely
+  const cleanupAudio = (audio: HTMLAudioElement) => {
+    audio.pause();
+    audio.src = '';
+    audio.load();
+    // Remove all event listeners by cloning and replacing
+    const newAudio = audio.cloneNode(false) as HTMLAudioElement;
+    return newAudio;
+  };
 
   // Update volume when changed
   useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume;
+    if (audioElement) {
+      audioElement.volume = volume;
     }
-  }, [volume]);
+  }, [volume, audioElement]);
 
   // Fetch current track info periodically
   useEffect(() => {
@@ -110,25 +108,25 @@ export default function RadioPlayer() {
 
       // Handle media session actions (headset button, Bluetooth controls)
       navigator.mediaSession.setActionHandler('play', () => {
-        if (audioRef.current && !isPlaying) {
-          audioRef.current.play()
+        if (audioElement && !isPlaying) {
+          audioElement.play()
             .then(() => setIsPlaying(true))
             .catch(console.error);
         }
       });
 
       navigator.mediaSession.setActionHandler('pause', () => {
-        if (audioRef.current && isPlaying) {
-          audioRef.current.pause();
+        if (audioElement && isPlaying) {
+          audioElement.pause();
           setIsPlaying(false);
         }
       });
 
       navigator.mediaSession.setActionHandler('stop', () => {
-        if (audioRef.current) {
-          audioRef.current.pause();
-          audioRef.current.src = RADIO_CONFIG.streamUrl;
-          audioRef.current.load();
+        if (audioElement) {
+          audioElement.pause();
+          audioElement.src = '';
+          audioElement.load();
           setIsPlaying(false);
         }
       });
@@ -145,7 +143,7 @@ export default function RadioPlayer() {
         navigator.mediaSession.setActionHandler('stop', null);
       }
     };
-  }, [isPlaying, currentTrack, currentArtist]);
+  }, [isPlaying, currentTrack, currentArtist, audioElement]);
 
   // Handle audio interruptions and errors
   useEffect(() => {
@@ -218,34 +216,53 @@ export default function RadioPlayer() {
   }, []);
 
   const togglePlay = () => {
-    if (!audioRef.current) return;
-
-    if (isPlaying) {
-      audioRef.current.pause();
+    if (isPlaying && audioElement) {
+      // When pausing: completely destroy the audio element
+      audioElement.pause();
+      audioElement.src = '';
+      audioElement.load();
+      setAudioElement(null);
       setIsPlaying(false);
     } else {
+      // When playing: create a completely fresh audio element
       setIsLoading(true);
       setError(null);
 
-      // Reset src and reload to ensure fresh connection
-      audioRef.current.src = RADIO_CONFIG.streamUrl;
-      audioRef.current.load();
+      const newAudio = createAudioElement();
+      setAudioElement(newAudio);
 
-      // Use a promise to handle play with proper error catching
-      const playPromise = audioRef.current.play();
+      // Wait for next render then play
+      setTimeout(() => {
+        if (!newAudio) return;
 
-      if (playPromise !== undefined) {
-        playPromise
+        // Add one-time event listeners
+        const handleCanPlay = () => {
+          setIsLoading(false);
+        };
+
+        const handleError = () => {
+          console.error('Audio error');
+          setError('Failed to connect to radio stream. Please check your connection.');
+          setIsLoading(false);
+          setIsPlaying(false);
+        };
+
+        newAudio.addEventListener('canplay', handleCanPlay, { once: true });
+        newAudio.addEventListener('error', handleError, { once: true });
+
+        newAudio.play()
           .then(() => {
             setIsPlaying(true);
-            setIsLoading(false);
           })
           .catch((err) => {
             console.error('Failed to play:', err);
             setError('Failed to connect to radio stream. Please check your connection.');
             setIsLoading(false);
+            newAudio.src = '';
+            newAudio.load();
+            setAudioElement(null);
           });
-      }
+      }, 50);
     }
   };
 
@@ -279,7 +296,9 @@ export default function RadioPlayer() {
             <h3 className="track-name">{currentTrack}</h3>
             <p className="artist-name">{currentArtist}</p>
             <p className="radio-status">
-              {isPlaying ? (
+              {isLoading ? (
+                '● Connecting...'
+              ) : isPlaying ? (
                 <><span className="live-indicator"></span> Live • {listeners} listeners</>
               ) : (
                 '○ Paused'

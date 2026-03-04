@@ -23,6 +23,10 @@ import androidx.core.app.NotificationCompat
 import com.example.radiogvg.MainActivity
 import com.example.radiogvg.R
 import com.example.radiogvg.network.RadioApiClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * MediaPlaybackService - Foreground service for radio playback with:
@@ -169,7 +173,10 @@ class MediaPlaybackService : Service() {
         if (!requestAudioFocus()) return
 
         if (mediaPlayer == null) {
-            createMediaPlayer()
+            // Create MediaPlayer on background thread to avoid blocking main thread
+            CoroutineScope(Dispatchers.IO).launch {
+                createMediaPlayer()
+            }
         } else {
             mediaPlayer?.start()
             isPlayingState = true
@@ -180,8 +187,12 @@ class MediaPlaybackService : Service() {
     }
 
     fun pause() {
-        mediaPlayer?.pause()
+        // Completely stop and release the MediaPlayer to prevent stale buffer issues
+        mediaPlayer?.stop()
+        mediaPlayer?.release()
+        mediaPlayer = null
         isPlayingState = false
+        abandonAudioFocus()
         updatePlaybackState()
         updateNotification()
         updateMediaSessionMetadata()
@@ -227,23 +238,37 @@ class MediaPlaybackService : Service() {
                 setOnPreparedListener {
                     it.start()
                     isPlayingState = true
-                    updatePlaybackState()
-                    startForeground(NOTIFICATION_ID, createNotification())
-                    updateMediaSessionMetadata()
+                    // UI updates must be on main thread
+                    CoroutineScope(Dispatchers.Main).launch {
+                        updatePlaybackState()
+                        startForeground(NOTIFICATION_ID, createNotification())
+                        updateMediaSessionMetadata()
+                    }
                 }
                 setOnErrorListener { _, _, _ ->
                     isPlayingState = false
-                    updatePlaybackState()
+                    CoroutineScope(Dispatchers.Main).launch {
+                        updatePlaybackState()
+                    }
                     true
                 }
                 setOnCompletionListener {
                     // For live stream, this shouldn't happen, but restart if it does
                     createMediaPlayer()
                 }
-                prepareAsync()
+                // Use sync prepare on IO thread - it's faster for live streams
+                prepare()
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            // If prepare fails, try async as fallback on main thread
+            try {
+                CoroutineScope(Dispatchers.Main).launch {
+                    mediaPlayer?.prepareAsync()
+                }
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+            }
         }
     }
 

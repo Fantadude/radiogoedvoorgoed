@@ -384,14 +384,10 @@ export default function Podcasts() {
             {episodes.map((episode) => (
               <div key={episode.id} className="episode-card">
                 <div className="episode-cover">
-                  {episode.coverImage ? (
+                  {episode.coverImage && episode.coverImage.trim() !== '' ? (
                     <img src={episode.coverImage} alt={episode.title} />
                   ) : (
-                    <div className="cover-placeholder">
-                      <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-                      </svg>
-                    </div>
+                    <img src="/kv_logo.png" alt="Kringloop Verhalen" className="fallback-logo" />
                   )}
                   <button 
                     className={`play-overlay ${currentEpisode?.id === episode.id && isPlaying ? 'playing' : ''}`}

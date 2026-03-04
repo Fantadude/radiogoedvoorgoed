@@ -101,12 +101,30 @@ fun PlayerScreen() {
 
     // Update now playing info periodically
     LaunchedEffect(Unit) {
+        // Immediate first fetch
+        try {
+            val result = apiClient.getNowPlaying()
+            result.onSuccess { source ->
+                nowPlaying = source
+                if (isServiceBound) {
+                    mediaService?.updateMetadata(
+                        title = source?.title ?: "radiogoedvoorgoed",
+                        artist = source?.artist ?: "",
+                        artUrl = source?.art
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore initial fetch errors
+        }
+        
+        // Then poll every 10 seconds (faster updates)
         while (isActive) {
+            delay(10000)
             try {
                 val result = apiClient.getNowPlaying()
                 result.onSuccess { source ->
                     nowPlaying = source
-                    // Update service metadata if playing
                     if (isServiceBound) {
                         mediaService?.updateMetadata(
                             title = source?.title ?: "radiogoedvoorgoed",
@@ -121,7 +139,6 @@ fun PlayerScreen() {
             } catch (e: Exception) {
                 // Ignore errors in polling
             }
-            delay(15000) // Update every 15 seconds
         }
     }
 
@@ -283,18 +300,40 @@ private fun PortraitPlayerLayout(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        if (isPlaying) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(Color.Red, CircleShape)
-                            )
+                        when {
+                            isLoading -> {
+                                // Show spinning loading indicator
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    color = LightBluePrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = "Connecting...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextMedium
+                                )
+                            }
+                            isPlaying -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .background(Color.Green, CircleShape)
+                                )
+                                Text(
+                                    text = "Live • ${np.listeners} listeners",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = TextMedium
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = "● Paused",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.Red
+                                )
+                            }
                         }
-                        Text(
-                            text = if (isPlaying) "Live • ${np.listeners} listeners" else "Paused",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextMedium
-                        )
                     }
                 }
             }
@@ -417,18 +456,39 @@ private fun LandscapePlayerLayout(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        if (isPlaying) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .background(Color.Red, CircleShape)
-                            )
+                        when {
+                            isLoading -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    color = LightBluePrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Text(
+                                    text = "Connecting...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMedium
+                                )
+                            }
+                            isPlaying -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .background(Color.Green, CircleShape)
+                                )
+                                Text(
+                                    text = "Live • ${nowPlaying?.listeners ?: 0} listeners",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextMedium
+                                )
+                            }
+                            else -> {
+                                Text(
+                                    text = "● Paused",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Red
+                                )
+                            }
                         }
-                        Text(
-                            text = if (isPlaying) "Live • ${nowPlaying?.listeners ?: 0} listeners" else "Paused",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextMedium
-                        )
                     }
                 }
             }
@@ -639,15 +699,17 @@ private fun AlbumArtWithLogo(
             }
         }
 
-        // Logo overlay (semi-transparent)
-        Image(
-            painter = fallbackLogo,
-            contentDescription = "radiogoedvoorgoed",
-            modifier = Modifier
-                .fillMaxWidth(0.4f)
-                .aspectRatio(1f)
-                .align(Alignment.Center),
-            alpha = 0.7f
-        )
+        // Logo overlay - only show when no album art
+        if (artworkUrl == null) {
+            Image(
+                painter = fallbackLogo,
+                contentDescription = "radiogoedvoorgoed",
+                modifier = Modifier
+                    .fillMaxWidth(0.4f)
+                    .aspectRatio(1f)
+                    .align(Alignment.Center),
+                alpha = 0.7f
+            )
+        }
     }
 }
