@@ -77,6 +77,9 @@ jobs:
     - name: Build release APK
       run: ./gradlew assembleRelease
 
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
     - name: Sign release APK
       uses: r0adkll/sign-android-release@v1
       with:
@@ -86,10 +89,15 @@ jobs:
         keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
         keyPassword: ${{ secrets.KEY_PASSWORD }}
 
+    - name: Rename signed APK
+      run: |
+        mv app/build/outputs/apk/release/app-release-unsigned-signed.apk app/build/outputs/apk/release/radiogoedvoorgoed-release.apk || true
+        mv app/build/outputs/apk/release/app-release-signed.apk app/build/outputs/apk/release/radiogoedvoorgoed-release.apk || true
+
     - name: Upload release APK to GitHub Releases
       uses: softprops/action-gh-release@v2
       with:
-        files: app/build/outputs/apk/release/app-release-unsigned-signed.apk
+        files: app/build/outputs/apk/release/radiogoedvoorgoed-release.apk
         tag_name: v${{ github.run_number }}
         name: Release Build ${{ github.run_number }}
         body: |
