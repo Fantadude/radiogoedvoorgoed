@@ -77,22 +77,44 @@ jobs:
     - name: Build release APK
       run: ./gradlew assembleRelease
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
-
-    - name: Sign release APK
-      uses: r0adkll/sign-android-release@v1
-      with:
-        releaseDirectory: app/build/outputs/apk/release
-        signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-        alias: ${{ secrets.ALIAS }}
-        keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-        keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-    - name: Rename signed APK
+    - name: Sign release APK with apksigner
+      env:
+        SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY }}
+        KEY_ALIAS: ${{ secrets.ALIAS }}
+        KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       run: |
-        mv app/build/outputs/apk/release/app-release-unsigned-signed.apk app/build/outputs/apk/release/radiogoedvoorgoed-release.apk || true
-        mv app/build/outputs/apk/release/app-release-signed.apk app/build/outputs/apk/release/radiogoedvoorgoed-release.apk || true
+        # Decode keystore
+        echo "$SIGNING_KEY_BASE64" | base64 -d > /tmp/release.keystore
+        
+        # Find apksigner
+        APK_SIGNER=$(find $ANDROID_SDK_ROOT/build-tools -name apksigner -type f 2>/dev/null | head -1)
+        if [ -z "$APK_SIGNER" ]; then
+          # Fallback: use zipalign + jarsigner if apksigner not found
+          zipalign -v 4 app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/release/app-release-aligned.apk
+          jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+            -keystore /tmp/release.keystore \
+            -storepass "$KEY_STORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            app/build/outputs/apk/release/app-release-aligned.apk \
+            "$KEY_ALIAS"
+          mv app/build/outputs/apk/release/app-release-aligned.apk app/build/outputs/apk/release/radiogoedvoorgoed-release.apk
+        else
+          # Use apksigner
+          "$APK_SIGNER" sign \
+            --ks /tmp/release.keystore \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass pass:"$KEY_STORE_PASSWORD" \
+            --key-pass pass:"$KEY_PASSWORD" \
+            --out app/build/outputs/apk/release/radiogoedvoorgoed-release.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+        fi
+        
+        # Cleanup
+        rm /tmp/release.keystore
+        
+        # Verify APK was created
+        ls -la app/build/outputs/apk/release/
 
     - name: Upload release APK to GitHub Releases
       uses: softprops/action-gh-release@v2
