@@ -129,7 +129,7 @@ class RadioApiClient {
                         requestMethod = "GET"
                         connectTimeout = 20000 // 20 seconds
                         readTimeout = 30000 // 30 seconds
-                        setRequestProperty("User-Agent", "RadioGVG-Android-App/1.0")
+                        setRequestProperty("User-Agent", "radiogoedvoorgoed-Android-App/1.0")
                         setRequestProperty("Accept", "application/rss+xml, application/xml, text/xml")
                         useCaches = false
                     }

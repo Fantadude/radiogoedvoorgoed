@@ -169,7 +169,7 @@ export default function Podcasts() {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: currentEpisode.title,
         artist: 'Kringloop Verhalen Podcast',
-        album: 'Radio Goed Voor Goed',
+        album: 'radiogoedvoorgoed',
         artwork: currentEpisode.coverImage ? [
           { src: currentEpisode.coverImage, sizes: '512x512', type: 'image/jpeg' },
         ] : [

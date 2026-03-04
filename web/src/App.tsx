@@ -12,7 +12,7 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Radio Goed Voor Goed</h1>
+        <h1>radiogoedvoorgoed</h1>
         <nav className="tab-nav">
           <button
             className={activeTab === 'radio' ? 'active' : ''}

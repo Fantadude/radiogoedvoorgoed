@@ -9,7 +9,7 @@ const RADIO_CONFIG = {
 export default function RadioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.8);
-  const [currentTrack, setCurrentTrack] = useState('Radio Goed Voor Goed');
+  const [currentTrack, setCurrentTrack] = useState('radiogoedvoorgoed');
   const [currentArtist, setCurrentArtist] = useState('Live Stream');
   const [listeners, setListeners] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -100,7 +100,7 @@ export default function RadioPlayer() {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: currentTrack,
         artist: currentArtist,
-        album: 'Radio Goed Voor Goed',
+        album: 'radiogoedvoorgoed',
         artwork: [
           { src: '/radio-logo.svg', sizes: '512x512', type: 'image/svg+xml' },
         ],
@@ -296,7 +296,7 @@ export default function RadioPlayer() {
         </div>
 
         <div className="station-info">
-          <p>Radio Goed Voor Goed - 24/7 Non-stop muziek</p>
+          <p>radiogoedvoorgoed - 24/7 Non-stop muziek</p>
           <p className="stream-quality">Stream: 128kbps MP3</p>
         </div>
       </div>

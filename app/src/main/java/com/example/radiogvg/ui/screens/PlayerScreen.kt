@@ -157,7 +157,7 @@ fun PlayerScreen() {
     }
 
     // Extract artist and title from Centova response
-    val title = nowPlaying?.title ?: "Radio Goed Voor Goed"
+    val title = nowPlaying?.title ?: "radiogoedvoorgoed"
     val artist = nowPlaying?.artist ?: ""
     val albumArtUrl = nowPlaying?.art
 
@@ -216,7 +216,7 @@ private fun PortraitPlayerLayout(
         // Radio Logo (small, at top)
         Image(
             painter = painterResource(id = R.drawable.radio_logo),
-            contentDescription = "Radio Goed Voor Goed",
+            contentDescription = "radiogoedvoorgoed",
             modifier = Modifier
                 .size(48.dp)
                 .padding(top = 4.dp),
@@ -225,7 +225,7 @@ private fun PortraitPlayerLayout(
 
         // App name below logo
         Text(
-            text = "RadioGoedvoorGoed",
+            text = "radiogoedvoorgoed",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold,
             color = LightBluePrimary,
@@ -510,7 +510,7 @@ private fun LandscapePlayerLayout(
         ) {
             // App name
             Text(
-                text = "RadioGoedvoorGoed",
+                text = "radiogoedvoorgoed",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = LightBluePrimary
@@ -703,13 +703,13 @@ fun AlbumArtWithLogo(
             return@LaunchedEffect
         }
 
-        if (artist.isNotBlank() && title.isNotBlank() && title != "Radio Goed Voor Goed") {
+        if (artist.isNotBlank() && title.isNotBlank() && title != "radiogoedvoorgoed") {
             isLoadingArt = true
             try {
                 val deezerSearchTerm = java.net.URLEncoder.encode("$artist $title", "UTF-8")
                 val deezerUrl = java.net.URL("https://api.deezer.com/search?q=$deezerSearchTerm&limit=1")
                 val deezerConnection = deezerUrl.openConnection()
-                deezerConnection.setRequestProperty("User-Agent", "RadioGVG-Android-App")
+                deezerConnection.setRequestProperty("User-Agent", "radiogoedvoorgoed-Android-App")
                 deezerConnection.connectTimeout = 5000
                 deezerConnection.readTimeout = 5000
 
@@ -729,7 +729,7 @@ fun AlbumArtWithLogo(
                     val mbSearchTerm = java.net.URLEncoder.encode("$artist $title", "UTF-8")
                     val mbUrl = java.net.URL("https://musicbrainz.org/ws/2/recording/?query=$mbSearchTerm&limit=1&fmt=json")
                     val mbConnection = mbUrl.openConnection()
-                    mbConnection.setRequestProperty("User-Agent", "RadioGVG-Android-App/1.0")
+                    mbConnection.setRequestProperty("User-Agent", "radiogoedvoorgoed-Android-App/1.0")
                     mbConnection.connectTimeout = 5000
                     mbConnection.readTimeout = 5000
 
@@ -775,7 +775,7 @@ fun AlbumArtWithLogo(
         } else {
             Image(
                 painter = fallbackLogo,
-                contentDescription = "Radio Goed Voor Goed Logo",
+                contentDescription = "radiogoedvoorgoed Logo",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )

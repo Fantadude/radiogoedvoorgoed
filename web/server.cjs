@@ -1,4 +1,4 @@
-// Simple Express server for Radio Goed Voor Goed
+// Simple Express server for radiogoedvoorgoed
 // Handles song requests and podcast episodes
 
 const express = require('express');
@@ -32,7 +32,7 @@ if (!fs.existsSync(PODCASTS_FILE)) {
   fs.writeFileSync(PODCASTS_FILE, JSON.stringify([
     {
       id: '1',
-      title: 'Welcome to Radio Goed Voor Goed',
+      title: 'Welcome to radiogoedvoorgoed',
       description: 'Introduction episode about our radio station and community.',
       audioUrl: '',
       duration: '10:00',
