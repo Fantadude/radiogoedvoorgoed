@@ -39,16 +39,6 @@ export default function RadioPlayer() {
     return audio;
   };
 
-  // Cleanup audio element completely
-  const cleanupAudio = (audio: HTMLAudioElement) => {
-    audio.pause();
-    audio.src = '';
-    audio.load();
-    // Remove all event listeners by cloning and replacing
-    const newAudio = audio.cloneNode(false) as HTMLAudioElement;
-    return newAudio;
-  };
-
   // Update volume when changed
   useEffect(() => {
     if (audioElement) {
