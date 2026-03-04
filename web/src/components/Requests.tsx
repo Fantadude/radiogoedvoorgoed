@@ -26,7 +26,7 @@ const ALPHABET = ['#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L
 
 export default function Requests() {
   const [songs, setSongs] = useState<Song[]>([]);
-  const [requests, setRequests] = useState<SongRequest[]>([]);
+  const [, setRequests] = useState<SongRequest[]>([]);
   const [selectedLetter, setSelectedLetter] = useState('A');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
