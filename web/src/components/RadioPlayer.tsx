@@ -114,22 +114,18 @@ export default function RadioPlayer() {
         <div className="now-playing">
           <div className="album-art">
             <div className={`album-art-placeholder ${isRadioPlaying ? 'playing' : ''}`}>
-              {isRadioPlaying ? (
-                <div className="visualizer">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
+              {radioMetadata.artUrl ? (
+                <img
+                  src={radioMetadata.artUrl}
+                  alt="Album Art"
+                  className="album-art-image"
+                />
               ) : (
-                <div className="album-art-static">
-                  <div className="visualizer-static">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
-                </div>
+                <img
+                  src="/radio_logo.png"
+                  alt="Radio GoedvoorGoed Logo"
+                  className="album-art-logo"
+                />
               )}
             </div>
           </div>
