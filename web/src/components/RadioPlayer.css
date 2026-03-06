@@ -177,8 +177,6 @@
   margin: 0.5rem 0;
   border: 1px solid var(--border-color);
   flex-shrink: 0;
-  max-height: 120px;
-  overflow-y: auto;
 }
 
 .recently-played-title {
@@ -441,7 +439,6 @@
   }
 
   .recently-played {
-    max-height: 90px;
     padding: 0.5rem;
   }
 
