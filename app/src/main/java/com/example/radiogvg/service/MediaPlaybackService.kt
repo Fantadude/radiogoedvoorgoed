@@ -214,13 +214,14 @@ class MediaPlaybackService : Service() {
     }
 
     private fun restorePlaybackStateIfNeeded() {
-        // Only restore if we have a saved podcast that was playing
-        val savedUrl = prefs.getString(KEY_PODCAST_URL, null)
         val wasPlaying = prefs.getBoolean(KEY_PODCAST_WAS_PLAYING, false)
-        val savedMode = prefs.getString(KEY_PLAYBACK_MODE, PlaybackMode.NONE.name)
+        if (!wasPlaying) return
 
-        if (savedUrl != null && wasPlaying) {
-            // Restore podcast playback
+        val savedMode = prefs.getString(KEY_PLAYBACK_MODE, PlaybackMode.NONE.name)
+        val savedUrl = prefs.getString(KEY_PODCAST_URL, null)
+
+        // Restore podcast only if there was an actual podcast URL
+        if (savedMode == PlaybackMode.PODCAST.name && !savedUrl.isNullOrEmpty()) {
             val title = prefs.getString(KEY_PODCAST_TITLE, "Podcast") ?: "Podcast"
             val artist = prefs.getString(KEY_PODCAST_ARTIST, "") ?: ""
             val cover = prefs.getString(KEY_PODCAST_COVER, null)
@@ -228,7 +229,7 @@ class MediaPlaybackService : Service() {
 
             // Restore and seek to saved position
             playPodcast(savedUrl, title, artist, cover, position)
-        } else if (savedMode == PlaybackMode.RADIO.name && wasPlaying) {
+        } else if (savedMode == PlaybackMode.RADIO.name) {
             // Restore radio playback
             playRadio()
         }
