@@ -14,7 +14,6 @@ function App() {
     <AudioProvider>
       <div className="app">
         <header className="app-header">
-          <h1>radiogoedvoorgoed</h1>
           <nav className="tab-nav">
             <button
               className={activeTab === 'radio' ? 'active' : ''}

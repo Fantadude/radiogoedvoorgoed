@@ -2,25 +2,19 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-header {
   background: var(--background-card);
-  padding: 1rem 2rem;
+  padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
-}
-
-.app-header h1 {
-  font-size: 1.5rem;
-  font-weight: 600;
-  background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .tab-nav {
@@ -51,18 +45,49 @@
 
 .app-main {
   flex: 1;
-  padding: 2rem;
+  padding: 1rem;
   max-width: 1200px;
   width: 100%;
   margin: 0 auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-@media (max-width: 768px) {
+/* Mobile portrait - compact header */
+@media (max-width: 430px) and (orientation: portrait) {
   .app-header {
-    padding: 1rem;
+    padding: 0.5rem 0.75rem;
+  }
+
+  .tab-nav button {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
   }
 
   .app-main {
-    padding: 1rem;
+    padding: 0.75rem;
+  }
+}
+
+/* Mobile landscape - even more compact */
+@media (max-height: 450px) and (orientation: landscape) {
+  .app-header {
+    padding: 0.4rem 0.75rem;
+  }
+
+  .tab-nav button {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .app-main {
+    padding: 0.5rem;
+  }
+}
+
+@media (min-width: 769px) {
+  .app-main {
+    padding: 2rem;
   }
 }

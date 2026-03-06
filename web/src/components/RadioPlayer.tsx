@@ -214,8 +214,7 @@ export default function RadioPlayer() {
         </div>
 
         <div className="station-info">
-          <p>radiogoedvoorgoed - 24/7 Non-stop muziek</p>
-          <p className="stream-quality">Stream: 128kbps MP3</p>
+          <p className="stream-quality">Stream: 128kbps MP3 • {radioMetadata.listeners} listeners</p>
         </div>
       </div>
     </div>
