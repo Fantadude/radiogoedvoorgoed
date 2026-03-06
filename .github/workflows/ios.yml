@@ -60,14 +60,27 @@ jobs:
         mkdir -p build
         
         # Determine project file to use
-        if [ -f "App.xcworkspace" ]; then
-          echo "Using workspace: App.xcworkspace"
-          PROJECT_ARG="-workspace App.xcworkspace"
-        elif [ -f "App.xcodeproj/project.pbxproj" ]; then
+        if [ -d "App.xcodeproj" ]; then
           echo "Using project: App.xcodeproj"
           PROJECT_ARG="-project App.xcodeproj"
+        elif [ -f "App.xcworkspace/contents.xcworkspacedata" ]; then
+          echo "Using workspace: App.xcworkspace"
+          PROJECT_ARG="-workspace App.xcworkspace"
+        elif [ -d "App" ]; then
+          # Capacitor sometimes creates just an 'App' directory
+          echo "Using App directory structure"
+          # Look for the actual .xcodeproj inside
+          XCODEPROJ=$(find App -name "*.xcodeproj" -type d | head -n 1)
+          if [ -n "$XCODEPROJ" ]; then
+            echo "Found project: $XCODEPROJ"
+            PROJECT_ARG="-project $XCODEPROJ"
+          else
+            echo "No .xcodeproj found in App directory"
+            ls -la App/
+            exit 1
+          fi
         else
-          echo "Error: Neither workspace nor project found"
+          echo "Error: No Xcode project found"
           echo "Available files:"
           ls -la
           exit 1
