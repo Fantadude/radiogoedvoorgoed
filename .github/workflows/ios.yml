@@ -53,36 +53,46 @@ jobs:
         echo "=== iOS directory contents ==="
         ls -la ios/
 
+    - name: Install CocoaPods dependencies
+      working-directory: ./web/ios/App
+      run: |
+        # Install CocoaPods if not present
+        if ! command -v pod &> /dev/null; then
+          echo "Installing CocoaPods..."
+          gem install cocoapods
+        fi
+        
+        # Install pods
+        echo "Running pod install..."
+        pod install
+        
+        echo "=== After pod install ==="
+        ls -la ../
+
     - name: Build unsigned IPA
       working-directory: ./web/ios
       run: |
         # Create build directory
         mkdir -p build
         
-        # Determine project file to use
-        if [ -d "App.xcodeproj" ]; then
-          echo "Using project: App.xcodeproj"
-          PROJECT_ARG="-project App.xcodeproj"
-        elif [ -f "App.xcworkspace/contents.xcworkspacedata" ]; then
+        # Determine project file to use (workspace preferred for CocoaPods)
+        if [ -d "App.xcworkspace" ]; then
           echo "Using workspace: App.xcworkspace"
           PROJECT_ARG="-workspace App.xcworkspace"
-        elif [ -d "App" ]; then
-          # Capacitor sometimes creates just an 'App' directory
-          echo "Using App directory structure"
-          # Look for the actual .xcodeproj inside
-          XCODEPROJ=$(find App -name "*.xcodeproj" -type d | head -n 1)
-          if [ -n "$XCODEPROJ" ]; then
-            echo "Found project: $XCODEPROJ"
-            PROJECT_ARG="-project $XCODEPROJ"
-          else
-            echo "No .xcodeproj found in App directory"
-            ls -la App/
-            exit 1
-          fi
+        elif [ -d "App/App.xcworkspace" ]; then
+          echo "Using workspace: App/App.xcworkspace"
+          PROJECT_ARG="-workspace App/App.xcworkspace"
+        elif [ -d "App.xcodeproj" ]; then
+          echo "Using project: App.xcodeproj"
+          PROJECT_ARG="-project App.xcodeproj"
+        elif [ -d "App/App.xcodeproj" ]; then
+          echo "Using project: App/App.xcodeproj"
+          PROJECT_ARG="-project App/App.xcodeproj"
         else
           echo "Error: No Xcode project found"
           echo "Available files:"
           ls -la
+          ls -la App/ || echo "No App directory"
           exit 1
         fi
         
