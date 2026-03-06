@@ -394,10 +394,12 @@
    ======================== */
 @media (max-width: 430px) and (orientation: portrait) {
   .player-container {
-    padding: 1rem;
+    padding: 0.75rem;
     border-radius: 12px;
     justify-content: flex-start;
-    gap: 0.5rem;
+    gap: 0.35rem;
+    height: auto;
+    min-height: 100%;
   }
 
   .now-playing {
@@ -460,8 +462,18 @@
     font-size: 0.65rem;
   }
 
+  .player-controls {
+    margin: 0.25rem 0;
+    gap: 1rem;
+  }
+
   .station-info {
-    padding-top: 0.25rem;
+    padding-top: 0.15rem;
+    margin-top: auto;
+  }
+
+  .station-info .stream-quality {
+    font-size: 0.7rem;
   }
 }
 
