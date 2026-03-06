@@ -18,13 +18,11 @@ export default function Podcasts() {
   const {
     isPlaying,
     mode,
-    volume,
     podcastMetadata,
     podcastAudio,
     playPodcast,
     pausePodcast,
     seekPodcast,
-    setVolume,
   } = useAudio();
 
   const [episodes, setEpisodes] = useState<PodcastEpisode[]>([]);
