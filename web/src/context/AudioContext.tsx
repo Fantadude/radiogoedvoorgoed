@@ -275,6 +275,45 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         audio.audioSession = { type: 'playback' };
       }
 
+      // Add error handling and auto-recovery for radio stream
+      audio.addEventListener('error', () => {
+        console.error('Radio stream error, attempting to reconnect...');
+        const wasPlaying = globalAudioState.isPlaying;
+        globalAudioState.isPlaying = false;
+        notifyListeners();
+
+        // Auto-retry after 2 seconds if we were playing
+        if (wasPlaying && globalAudioState.mode === 'radio') {
+          setTimeout(() => {
+            if (globalAudioState.mode === 'radio') {
+              playRadioInternal();
+            }
+          }, 2000);
+        }
+      });
+
+      audio.addEventListener('stalled', () => {
+        console.warn('Radio stream stalled');
+      });
+
+      audio.addEventListener('waiting', () => {
+        console.warn('Radio stream buffering...');
+      });
+
+      audio.addEventListener('canplay', () => {
+        console.log('Radio stream can play');
+      });
+
+      // Handle unexpected ended events (shouldn't happen for live streams, but just in case)
+      audio.addEventListener('ended', () => {
+        console.warn('Radio stream ended unexpectedly, attempting to reconnect...');
+        if (globalAudioState.mode === 'radio') {
+          setTimeout(() => {
+            playRadioInternal();
+          }, 1000);
+        }
+      });
+
       globalAudioState.radioAudio = audio;
     }
 

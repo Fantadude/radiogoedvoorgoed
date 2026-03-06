@@ -404,11 +404,20 @@ class MediaPlaybackService : Service() {
                         playbackCallback?.onPlaybackStateChanged(true, PlaybackMode.RADIO)
                     }
                 }
-                setOnErrorListener { _, _, _ ->
+                setOnErrorListener { _, what, extra ->
                     isPlayingState = false
                     CoroutineScope(Dispatchers.Main).launch {
                         updatePlaybackState()
                         playbackCallback?.onPlaybackStateChanged(false, PlaybackMode.RADIO)
+                    }
+                    // Auto-retry for radio stream errors after 2 seconds
+                    if (playbackMode == PlaybackMode.RADIO) {
+                        CoroutineScope(Dispatchers.IO).launch {
+                            delay(2000)
+                            if (playbackMode == PlaybackMode.RADIO && !isPlayingState) {
+                                createRadioMediaPlayer()
+                            }
+                        }
                     }
                     true
                 }
