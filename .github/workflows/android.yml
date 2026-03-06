@@ -102,14 +102,23 @@ jobs:
         ls -la app/build/outputs/apk/release/
         ls -la app/build/outputs/apk/signed/ || true
 
+    - name: Get version from build.gradle
+      id: get_version
+      run: |
+        VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "App version: $VERSION"
+
     - name: Upload release APK to GitHub Releases
       uses: softprops/action-gh-release@v2
       with:
         files: app/build/outputs/apk/signed/radiogoedvoorgoed-release.apk
-        tag_name: v${{ github.run_number }}
-        name: Release Build ${{ github.run_number }}
+        tag_name: v${{ steps.get_version.outputs.VERSION }}
+        name: Release v${{ steps.get_version.outputs.VERSION }}
         body: |
           Automated release build from commit ${{ github.sha }}
+          
+          **Version:** ${{ steps.get_version.outputs.VERSION }}
           
           **Features:**
           - MediaSession for lock screen controls
