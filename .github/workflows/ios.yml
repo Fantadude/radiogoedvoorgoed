@@ -39,19 +39,23 @@ jobs:
     - name: Initialize Capacitor iOS
       working-directory: ./web
       run: |
-        # Initialize the iOS platform if it doesn't exist
-        if [ ! -d "ios" ]; then
-          echo "Adding iOS platform..."
+        # Check if we have a proper iOS platform (Podfile is required)
+        if [ ! -f "ios/App/Podfile" ]; then
+          echo "Podfile missing - removing incomplete ios directory and re-adding iOS platform..."
+          rm -rf ios
           npx cap add ios
         else
-          echo "iOS platform already exists"
+          echo "iOS platform already exists with Podfile"
         fi
+        
         # Sync the web build with iOS
         npx cap sync ios
         
         # List what was created for debugging
         echo "=== iOS directory contents ==="
         ls -la ios/
+        echo "=== iOS/App directory contents ==="
+        ls -la ios/App/
 
     - name: Install CocoaPods dependencies
       working-directory: ./web/ios/App
