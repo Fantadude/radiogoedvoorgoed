@@ -1,50 +1,29 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { useAudio } from '../context/AudioContext';
 import './RadioPlayer.css';
 
 const RADIO_CONFIG = {
   streamUrl: 'https://ex52.voordeligstreamen.nl/8154/stream',
-  nowPlayingUrl: 'https://ex52.voordeligstreamen.nl/8154/status-json.xsl',
+  nowPlayingUrl: 'https://ex52.voordeligstreamen.nl/cp/get_info.php?p=8154',
 };
 
 export default function RadioPlayer() {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [volume, setVolume] = useState(0.8);
-  const [currentTrack, setCurrentTrack] = useState('radiogoedvoorgoed');
-  const [currentArtist, setCurrentArtist] = useState('Live Stream');
-  const [listeners, setListeners] = useState(0);
-  const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const {
+    isPlaying,
+    mode,
+    volume,
+    radioMetadata,
+    playRadio,
+    pauseRadio,
+    setVolume,
+    setRadioMetadata,
+  } = useAudio();
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<string[]>([]);
 
-  // Keep audioRef in sync with audioElement state
-  useEffect(() => {
-    audioRef.current = audioElement;
-  }, [audioElement]);
-
-  // Create a fresh audio element for playing
-  const createAudioElement = () => {
-    const audio = new Audio();
-    audio.src = RADIO_CONFIG.streamUrl;
-    audio.volume = volume;
-    audio.preload = 'none';
-    audio.setAttribute('type', 'audio/mpeg');
-    
-    // @ts-ignore
-    if ('audioSession' in audio) {
-      // @ts-ignore
-      audio.audioSession = { type: 'playback' };
-    }
-    
-    return audio;
-  };
-
-  // Update volume when changed
-  useEffect(() => {
-    if (audioElement) {
-      audioElement.volume = volume;
-    }
-  }, [volume, audioElement]);
+  const isRadioPlaying = isPlaying && mode === 'radio';
 
   // Fetch current track info periodically
   useEffect(() => {
@@ -53,25 +32,30 @@ export default function RadioPlayer() {
         const response = await fetch(RADIO_CONFIG.nowPlayingUrl);
         if (response.ok) {
           const data = await response.json();
-          // Icecast JSON format
-          if (data.icestats && data.icestats.source) {
-            const source = Array.isArray(data.icestats.source)
-              ? data.icestats.source[0]
-              : data.icestats.source;
+          // Centova JSON format
+          if (data.title) {
+            setRadioMetadata({
+              title: data.title,
+              artist: data.artist || '',
+              artUrl: data.art || null,
+              listeners: data.listeners || 0,
+            });
 
-            if (source.title) {
-              const titleParts = source.title.split(' - ');
-              if (titleParts.length >= 2) {
-                setCurrentArtist(titleParts[0]);
-                setCurrentTrack(titleParts.slice(1).join(' - '));
-              } else {
-                setCurrentTrack(source.title);
-                setCurrentArtist('Unknown Artist');
-              }
+            if (data.history && Array.isArray(data.history)) {
+              // History comes as [1.) oldest, ..., 20.) current]
+              // Reverse to [20.) current, 19., 18., ...], skip current (index 0), take 19, 18, 17
+              const filteredHistory = data.history
+                .slice()           // Create a copy
+                .reverse()          // Reverse: [20.) current, 19., 18., 17., ...]
+                .slice(1)           // Skip current song at index 0
+                .filter((item: string) => item && !item.includes('RadioGoedvoorGoed'))
+                .slice(0, 3);       // Take max 3
+
+              setHistory(filteredHistory);
             }
-            if (source.listeners) {
-              setListeners(source.listeners);
-            }
+          }
+          if (data.listeners !== undefined) {
+            setRadioMetadata({ listeners: data.listeners });
           }
         }
       } catch (err) {
@@ -82,187 +66,55 @@ export default function RadioPlayer() {
     fetchTrackInfo();
     const interval = setInterval(fetchTrackInfo, 15000); // Update every 15 seconds
     return () => clearInterval(interval);
-  }, []);
+  }, [setRadioMetadata]);
 
-  // Media Session API - for lock screen/notification controls
+  // Sync volume changes
   useEffect(() => {
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: currentTrack,
-        artist: currentArtist,
-        album: 'radiogoedvoorgoed',
-        artwork: [
-          { src: '/radio-logo.svg', sizes: '512x512', type: 'image/svg+xml' },
-        ],
-      });
-
-      // Handle media session actions (headset button, Bluetooth controls)
-      navigator.mediaSession.setActionHandler('play', () => {
-        if (audioElement && !isPlaying) {
-          audioElement.play()
-            .then(() => setIsPlaying(true))
-            .catch(console.error);
-        }
-      });
-
-      navigator.mediaSession.setActionHandler('pause', () => {
-        if (audioElement && isPlaying) {
-          audioElement.pause();
-          setIsPlaying(false);
-        }
-      });
-
-      navigator.mediaSession.setActionHandler('stop', () => {
-        if (audioElement) {
-          audioElement.pause();
-          audioElement.src = '';
-          audioElement.load();
-          setIsPlaying(false);
-        }
-      });
-
-      // Update playback state
-      navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-    }
-
-    return () => {
-      // Clean up media session handlers when component unmounts
-      if ('mediaSession' in navigator) {
-        navigator.mediaSession.setActionHandler('play', null);
-        navigator.mediaSession.setActionHandler('pause', null);
-        navigator.mediaSession.setActionHandler('stop', null);
-      }
-    };
-  }, [isPlaying, currentTrack, currentArtist, audioElement]);
-
-  // Handle audio interruptions and errors
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    const handlePause = () => {
-      // Check if audio actually stopped (ended) or just paused
-      if (audio.ended || audio.error) {
-        setIsPlaying(false);
-      }
-    };
-
-    const handlePlay = () => {
-      setIsPlaying(true);
-      setError(null);
-    };
-
-    const handleWaiting = () => {
-      setIsLoading(true);
-    };
-
-    const handleCanPlay = () => {
-      setIsLoading(false);
-    };
-
-    const handleError = (e: Event) => {
-      console.error('Audio error:', e);
-      setError('Stream connection lost. Try playing again.');
-      setIsPlaying(false);
-      setIsLoading(false);
-    };
-
-    const handleStalled = () => {
-      console.warn('Audio stalled - waiting for data');
-      setIsLoading(true);
-    };
-
-    // Listen for system audio events (important for Bluetooth and interruptions)
-    audio.addEventListener('pause', handlePause);
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('waiting', handleWaiting);
-    audio.addEventListener('canplay', handleCanPlay);
-    audio.addEventListener('error', handleError);
-    audio.addEventListener('stalled', handleStalled);
-
-    return () => {
-      audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('waiting', handleWaiting);
-      audio.removeEventListener('canplay', handleCanPlay);
-      audio.removeEventListener('error', handleError);
-      audio.removeEventListener('stalled', handleStalled);
-    };
-  }, []);
-
-  // Page Visibility API - keep playing when tab is hidden
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        console.log('Radio continuing in background...');
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
+    // Volume is managed by the context
+  }, [volume]);
 
   const togglePlay = () => {
-    if (isPlaying && audioElement) {
-      // When pausing: completely destroy the audio element
-      audioElement.pause();
-      audioElement.src = '';
-      audioElement.load();
-      setAudioElement(null);
-      setIsPlaying(false);
+    if (isRadioPlaying) {
+      setIsLoading(false);
+      setError(null);
+      pauseRadio();
     } else {
-      // When playing: create a completely fresh audio element
       setIsLoading(true);
       setError(null);
 
-      const newAudio = createAudioElement();
-      setAudioElement(newAudio);
+      // Set up a one-time check for loading state
+      const checkPlaying = setTimeout(() => {
+        setIsLoading(false);
+      }, 2000);
 
-      // Wait for next render then play
-      setTimeout(() => {
-        if (!newAudio) return;
+      playRadio();
 
-        // Add one-time event listeners
-        const handleCanPlay = () => {
-          setIsLoading(false);
-        };
-
-        const handleError = () => {
-          console.error('Audio error');
-          setError('Failed to connect to radio stream. Please check your connection.');
-          setIsLoading(false);
-          setIsPlaying(false);
-        };
-
-        newAudio.addEventListener('canplay', handleCanPlay, { once: true });
-        newAudio.addEventListener('error', handleError, { once: true });
-
-        newAudio.play()
-          .then(() => {
-            setIsPlaying(true);
-          })
-          .catch((err) => {
-            console.error('Failed to play:', err);
-            setError('Failed to connect to radio stream. Please check your connection.');
-            setIsLoading(false);
-            newAudio.src = '';
-            newAudio.load();
-            setAudioElement(null);
-          });
-      }, 50);
+      return () => clearTimeout(checkPlaying);
     }
   };
+
+  // Listen for radio errors (check periodically)
+  useEffect(() => {
+    if (!isRadioPlaying) {
+      setIsLoading(false);
+      return;
+    }
+
+    // Give it a moment to connect
+    const timeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 1000);
+
+    return () => clearTimeout(timeout);
+  }, [isRadioPlaying]);
 
   return (
     <div className="radio-player">
       <div className="player-container">
         <div className="now-playing">
           <div className="album-art">
-            <div className={`album-art-placeholder ${isPlaying ? 'playing' : ''}`}>
-              {isPlaying ? (
+            <div className={`album-art-placeholder ${isRadioPlaying ? 'playing' : ''}`}>
+              {isRadioPlaying ? (
                 <div className="visualizer">
                   <span></span>
                   <span></span>
@@ -283,13 +135,13 @@ export default function RadioPlayer() {
           </div>
 
           <div className="track-info">
-            <h3 className="track-name">{currentTrack}</h3>
-            <p className="artist-name">{currentArtist}</p>
+            <h3 className="track-name">{radioMetadata.title}</h3>
+            <p className="artist-name">{radioMetadata.artist}</p>
             <p className="radio-status">
               {isLoading ? (
                 '● Connecting...'
-              ) : isPlaying ? (
-                <><span className="live-indicator"></span> Live • {listeners} listeners</>
+              ) : isRadioPlaying ? (
+                <><span className="live-indicator"></span> Live • {radioMetadata.listeners} listeners</>
               ) : (
                 '○ Paused'
               )}
@@ -299,15 +151,41 @@ export default function RadioPlayer() {
 
         {error && <div className="player-error">{error}</div>}
 
+        {/* Recently Played Section */}
+        {history.length > 0 && (
+          <div className="recently-played">
+            <h4 className="recently-played-title">Recently Played</h4>
+            <div className="recently-played-list">
+              {history.map((item, index) => {
+                // Parse history item (format: "1.) Artist - Title")
+                const cleanedItem = item.replace(/^\d+\.\)\s*/, '');
+                const parts = cleanedItem.split(' - ');
+                const artist = parts.length >= 2 ? parts[0] : '';
+                const title = parts.length >= 2 ? parts.slice(1).join(' - ') : cleanedItem;
+
+                return (
+                  <div key={index} className="recently-played-item">
+                    <span className="recently-played-number">{index + 1}</span>
+                    <div className="recently-played-info">
+                      <span className="recently-played-title-text">{title}</span>
+                      {artist && <span className="recently-played-artist">{artist}</span>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="player-controls">
           <button
-            className={`play-btn ${isPlaying ? 'playing' : ''}`}
+            className={`play-btn ${isRadioPlaying ? 'playing' : ''}`}
             onClick={togglePlay}
             disabled={isLoading}
           >
             {isLoading ? (
               <span className="spinner"></span>
-            ) : isPlaying ? (
+            ) : isRadioPlaying ? (
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
               </svg>

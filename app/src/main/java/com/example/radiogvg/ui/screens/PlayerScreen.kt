@@ -6,6 +6,9 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.content.res.Configuration
 import android.os.IBinder
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.core.net.toUri
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -17,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeMute
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -32,7 +36,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -43,13 +46,30 @@ import com.example.radiogvg.network.RadioApiClient
 import com.example.radiogvg.service.MediaPlaybackService
 import com.example.radiogvg.ui.theme.LightBlueLight
 import com.example.radiogvg.ui.theme.LightBluePrimary
-import com.example.radiogvg.ui.theme.LightBlueSecondary
 import com.example.radiogvg.ui.theme.OffWhite
 import com.example.radiogvg.ui.theme.TextDark
 import com.example.radiogvg.ui.theme.TextMedium
 import com.example.radiogvg.ui.theme.White
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+
+// SharedPreferences constants
+private const val PREFS_NAME = "RadioGvG_Prefs"
+private const val KEY_BATTERY_OPT_DIALOG_SHOWN = "battery_opt_dialog_shown"
+private const val KEY_BATTERY_OPT_ENABLED = "battery_opt_enabled"
+
+// Parse history string from API (format: "Artist - Title" or just "Title")
+// Also handles numbered format like "1.) Artist - Title"
+private fun parseHistoryItem(historyItem: String): Pair<String, String> {
+    // Remove leading numbering like "1.) "
+    val cleanedItem = historyItem.replace(Regex("^\\d+\\.\\)\\s*"), "")
+    val parts = cleanedItem.split(" - ", limit = 2)
+    return if (parts.size == 2) {
+        parts[1].trim() to parts[0].trim() // title to artist
+    } else {
+        cleanedItem.trim() to ""
+    }
+}
 
 @Composable
 fun PlayerScreen() {
@@ -63,10 +83,14 @@ fun PlayerScreen() {
     var mediaService by remember { mutableStateOf<MediaPlaybackService?>(null) }
     var isServiceBound by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
+    var isServicePlayingRadio by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var volume by remember { mutableFloatStateOf(0.8f) }
     var nowPlaying by remember { mutableStateOf<CentovaNowPlaying?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Battery optimization dialog state
+    var showBatteryOptDialog by remember { mutableStateOf(false) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -77,7 +101,27 @@ fun PlayerScreen() {
                 val binder = service as MediaPlaybackService.LocalBinder
                 mediaService = binder.getService()
                 isServiceBound = true
-                isPlaying = mediaService?.isPlaying() ?: false
+
+                // Set callback for updates
+                mediaService?.setPlaybackCallback(object : MediaPlaybackService.PlaybackCallback {
+                    @Suppress("PARAMETER_NAME_CHANGED_ON_OVERRIDE")
+                    override fun onPlaybackStateChanged(playing: Boolean, mode: MediaPlaybackService.PlaybackMode) {
+                        isPlaying = playing
+                        isServicePlayingRadio = mode == MediaPlaybackService.PlaybackMode.RADIO
+                    }
+
+                    override fun onProgressUpdate(position: Int, duration: Int) {
+                        // Radio doesn't need progress updates
+                    }
+
+                    override fun onMetadataUpdate(title: String, artist: String, coverUrl: String?) {
+                        // Radio updates handled separately via API
+                    }
+                })
+
+                // Sync initial state
+                isPlaying = mediaService?.isPlaying() == true
+                isServicePlayingRadio = mediaService?.getPlaybackMode() == MediaPlaybackService.PlaybackMode.RADIO
             }
 
             override fun onServiceDisconnected(name: ComponentName?) {
@@ -95,6 +139,7 @@ fun PlayerScreen() {
         onDispose {
             if (isServiceBound) {
                 context.unbindService(serviceConnection)
+                mediaService?.setPlaybackCallback(null)
             }
         }
     }
@@ -107,17 +152,17 @@ fun PlayerScreen() {
             result.onSuccess { source ->
                 nowPlaying = source
                 if (isServiceBound) {
-                    mediaService?.updateMetadata(
-                        title = source?.title ?: "radiogoedvoorgoed",
+                    mediaService?.updateRadioMetadata(
+                        title = source?.title ?: "",
                         artist = source?.artist ?: "",
                         artUrl = source?.art
                     )
                 }
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // Ignore initial fetch errors
         }
-        
+
         // Then poll every 10 seconds (faster updates)
         while (isActive) {
             delay(10000)
@@ -126,8 +171,8 @@ fun PlayerScreen() {
                 result.onSuccess { source ->
                     nowPlaying = source
                     if (isServiceBound) {
-                        mediaService?.updateMetadata(
-                            title = source?.title ?: "radiogoedvoorgoed",
+                        mediaService?.updateRadioMetadata(
+                            title = source?.title ?: "",
                             artist = source?.artist ?: "",
                             artUrl = source?.art
                         )
@@ -136,7 +181,7 @@ fun PlayerScreen() {
                 }.onFailure {
                     // Silently fail - keep showing last info
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Ignore errors in polling
             }
         }
@@ -162,22 +207,65 @@ fun PlayerScreen() {
         }
     }
 
+    // Function to check if battery optimization is enabled
+    fun isBatteryOptimizationEnabled(): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return !powerManager.isIgnoringBatteryOptimizations(context.packageName)
+    }
+
+    // Function to open battery optimization settings
+    // Note: REQUEST_IGNORE_BATTERY_OPTIMIZATIONS is acceptable for radio streaming apps
+    // that require uninterrupted background playback. This is a legitimate use case per
+    // Android policy for media playback apps.
+    fun openBatteryOptimizationSettings() {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = "package:${context.packageName}".toUri()
+        }
+        try {
+            context.startActivity(intent)
+        } catch (_: Exception) {
+            // Fallback to app settings if the specific intent fails
+            val fallbackIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = "package:${context.packageName}".toUri()
+            }
+            context.startActivity(fallbackIntent)
+        }
+    }
+
     fun togglePlayback() {
         if (isServiceBound) {
+            // Check if we should show battery optimization dialog
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val dialogShown = prefs.getBoolean(KEY_BATTERY_OPT_DIALOG_SHOWN, false)
+            val userEnabledOpt = prefs.getBoolean(KEY_BATTERY_OPT_ENABLED, true)
+
+            if (!isPlaying && !dialogShown && isBatteryOptimizationEnabled() && userEnabledOpt) {
+                // Show the dialog before starting playback
+                showBatteryOptDialog = true
+                return
+            }
+
             isLoading = true
-            if (mediaService?.isPlaying() == true) {
+            if (isServicePlayingRadio && isPlaying) {
+                // Pause radio
                 mediaService?.pause()
                 isPlaying = false
+            } else if (isServicePlayingRadio && !isPlaying) {
+                // Resume existing radio playback
+                mediaService?.resume()
+                isPlaying = true
             } else {
-                // Start the service first
-                val intent = Intent(context, MediaPlaybackService::class.java)
+                // Start radio - this will stop any podcast via the service
+                val intent = Intent(context, MediaPlaybackService::class.java).apply {
+                    action = MediaPlaybackService.ACTION_PLAY_RADIO
+                }
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
                 } else {
                     context.startService(intent)
                 }
-                mediaService?.play()
                 isPlaying = true
+                isServicePlayingRadio = true
             }
             isLoading = false
         }
@@ -188,10 +276,30 @@ fun PlayerScreen() {
         mediaService?.setVolume(volume)
     }
 
-    // Extract artist and title from Centova response
-    val title = nowPlaying?.title ?: "radiogoedvoorgoed"
+    // Extract artist and title from Centova response - use empty defaults
+    val title = nowPlaying?.title ?: ""
     val artist = nowPlaying?.artist ?: ""
     val albumArtUrl = nowPlaying?.art
+
+    // Battery Optimization Dialog
+    if (showBatteryOptDialog) {
+        BatteryOptimizationDialog(
+            onDismiss = { userChoice ->
+                showBatteryOptDialog = false
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit().apply {
+                    putBoolean(KEY_BATTERY_OPT_DIALOG_SHOWN, true)
+                    putBoolean(KEY_BATTERY_OPT_ENABLED, userChoice)
+                    apply()
+                }
+                if (userChoice) {
+                    openBatteryOptimizationSettings()
+                }
+                // Continue with playback
+                togglePlayback()
+            }
+        )
+    }
 
     if (isLandscape) {
         LandscapePlayerLayout(
@@ -204,7 +312,8 @@ fun PlayerScreen() {
             nowPlaying = nowPlaying,
             errorMessage = errorMessage,
             onTogglePlayback = { togglePlayback() },
-            onVolumeChange = { updateVolume(it) }
+            onVolumeChange = { updateVolume(it) },
+            isServicePlayingRadio = isServicePlayingRadio
         )
     } else {
         PortraitPlayerLayout(
@@ -217,9 +326,80 @@ fun PlayerScreen() {
             nowPlaying = nowPlaying,
             errorMessage = errorMessage,
             onTogglePlayback = { togglePlayback() },
-            onVolumeChange = { updateVolume(it) }
+            onVolumeChange = { updateVolume(it) },
+            isServicePlayingRadio = isServicePlayingRadio
         )
     }
+}
+
+@Composable
+private fun BatteryOptimizationDialog(
+    onDismiss: (Boolean) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = { onDismiss(false) },
+        icon = {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = LightBluePrimary,
+                modifier = Modifier.size(48.dp)
+            )
+        },
+        title = {
+            Text(
+                text = "Battery Optimization",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "To ensure uninterrupted radio playback, we recommend disabling battery optimization for this app.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "Without this setting, the system may stop the radio after a while to save battery.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMedium,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = "You can change this anytime in your device settings.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onDismiss(true) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = LightBluePrimary
+                )
+            ) {
+                Text("Enable Unrestricted")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = { onDismiss(false) }
+            ) {
+                Text(
+                    "Skip",
+                    color = TextMedium
+                )
+            }
+        },
+        containerColor = White,
+        shape = RoundedCornerShape(16.dp)
+    )
 }
 
 @Composable
@@ -233,66 +413,57 @@ private fun PortraitPlayerLayout(
     nowPlaying: CentovaNowPlaying?,
     errorMessage: String?,
     onTogglePlayback: () -> Unit,
-    onVolumeChange: (Float) -> Unit
+    onVolumeChange: (Float) -> Unit,
+    isServicePlayingRadio: Boolean
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(OffWhite)
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
     ) {
-        // App name header
-        Text(
-            text = "radiogoedvoorgoed",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = LightBluePrimary
-        )
-
-        // Album Art with Logo overlay
+        // Album Art
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .padding(horizontal = 32.dp),
+                .fillMaxWidth(0.55f)
+                .aspectRatio(1f),
             contentAlignment = Alignment.Center
         ) {
             AlbumArtWithLogo(
                 isPlaying = isPlaying,
-                artist = artist,
-                title = title,
                 artworkUrl = albumArtUrl,
                 fallbackLogo = painterResource(id = R.drawable.radio_logo),
-                maxHeightFraction = 0.7f
+                maxHeightFraction = 0.95f
             )
         }
 
-        // Track Info
+        // Now Playing - Track Info
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(10.dp),
             colors = CardDefaults.cardColors(containerColor = White)
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    text = title.ifBlank { "Radio GvG" },
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = TextDark,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
                 )
                 if (artist.isNotBlank()) {
                     Text(
                         text = artist,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = MaterialTheme.typography.bodySmall,
                         color = TextMedium,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
                     )
                 }
                 nowPlaying?.let { np ->
@@ -302,34 +473,33 @@ private fun PortraitPlayerLayout(
                     ) {
                         when {
                             isLoading -> {
-                                // Show spinning loading indicator
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
+                                    modifier = Modifier.size(10.dp),
                                     color = LightBluePrimary,
-                                    strokeWidth = 2.dp
+                                    strokeWidth = 1.5.dp
                                 )
                                 Text(
                                     text = "Connecting...",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = TextMedium
                                 )
                             }
                             isPlaying -> {
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(5.dp)
                                         .background(Color.Green, CircleShape)
                                 )
                                 Text(
                                     text = "Live • ${np.listeners} listeners",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = TextMedium
                                 )
                             }
                             else -> {
                                 Text(
                                     text = "● Paused",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = Color.Red
                                 )
                             }
@@ -343,30 +513,122 @@ private fun PortraitPlayerLayout(
         errorMessage?.let { error ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(6.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE5E5))
             ) {
                 Text(
                     text = error,
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFFD32F2F),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
                 )
+            }
+        }
+
+        // Recently Played Section - positioned above the play button
+        // History comes as [1.) oldest, ..., 20.) current]
+        // We want: reverse to [20.) current, 19., 18., ...], skip current (index 0), take 19, 18, 17
+        val history = nowPlaying?.history
+            ?.asReversed()  // Reverse: [20.) current, 19., 18., 17., ...]
+            ?.drop(1)       // Skip current song at index 0
+            ?.filter { it.isNotBlank() && !it.contains("RadioGoedvoorGoed") }
+            ?.take(3)
+            ?: emptyList()
+        if (history.isNotEmpty()) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = LightBlueLight)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Recently Played",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Medium,
+                        color = TextMedium,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        history.forEachIndexed { index, historyItem ->
+                            val (songTitle, songArtist) = parseHistoryItem(historyItem)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = White)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .background(LightBluePrimary, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "${index + 1}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = White
+                                        )
+                                    }
+                                    Column(
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(
+                                            text = songTitle,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextDark,
+                                            maxLines = 1
+                                        )
+                                        if (songArtist.isNotBlank()) {
+                                            Text(
+                                                text = songArtist,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = TextMedium,
+                                                maxLines = 1
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
         // Play/Pause Button
         PlayPauseButton(
             isPlaying = isPlaying,
+            isServicePlayingRadio = isServicePlayingRadio,
             isLoading = isLoading,
-            onTogglePlayback = onTogglePlayback
+            onTogglePlayback = onTogglePlayback,
+            modifier = Modifier.size(72.dp)
         )
 
         // Volume Control
         VolumeControl(
             volume = volume,
-            onVolumeChange = onVolumeChange
+            onVolumeChange = onVolumeChange,
+            compact = true
         )
     }
 }
@@ -382,7 +644,8 @@ private fun LandscapePlayerLayout(
     nowPlaying: CentovaNowPlaying?,
     errorMessage: String?,
     onTogglePlayback: () -> Unit,
-    onVolumeChange: (Float) -> Unit
+    onVolumeChange: (Float) -> Unit,
+    isServicePlayingRadio: Boolean
 ) {
     Row(
         modifier = Modifier
@@ -401,8 +664,6 @@ private fun LandscapePlayerLayout(
         ) {
             AlbumArtWithLogo(
                 isPlaying = isPlaying,
-                artist = artist,
-                title = title,
                 artworkUrl = albumArtUrl,
                 fallbackLogo = painterResource(id = R.drawable.radio_logo),
                 maxHeightFraction = 1f
@@ -418,14 +679,6 @@ private fun LandscapePlayerLayout(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
         ) {
-            // App name
-            Text(
-                text = "radiogoedvoorgoed",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = LightBluePrimary
-            )
-
             // Track Info
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -514,6 +767,7 @@ private fun LandscapePlayerLayout(
             // Play/Pause Button (compact)
             PlayPauseButton(
                 isPlaying = isPlaying,
+                isServicePlayingRadio = isServicePlayingRadio,
                 isLoading = isLoading,
                 onTogglePlayback = onTogglePlayback,
                 modifier = Modifier.size(56.dp)
@@ -532,6 +786,7 @@ private fun LandscapePlayerLayout(
 @Composable
 private fun PlayPauseButton(
     isPlaying: Boolean,
+    isServicePlayingRadio: Boolean,
     isLoading: Boolean,
     onTogglePlayback: () -> Unit,
     modifier: Modifier = Modifier
@@ -562,12 +817,12 @@ private fun PlayPauseButton(
             )
         } else {
             Icon(
-                imageVector = if (isPlaying) {
-                    Icons.Filled.PlayArrow
+                imageVector = if (isPlaying && isServicePlayingRadio) {
+                    Icons.Filled.Pause
                 } else {
                     Icons.Filled.PlayArrow
                 },
-                contentDescription = if (isPlaying) "Pause" else "Play",
+                contentDescription = if (isPlaying && isServicePlayingRadio) "Pause" else "Play",
                 modifier = Modifier.size(40.dp),
                 tint = White
             )
@@ -617,8 +872,6 @@ private fun VolumeControl(
 @Composable
 private fun AlbumArtWithLogo(
     isPlaying: Boolean,
-    artist: String,
-    title: String,
     artworkUrl: String?,
     fallbackLogo: androidx.compose.ui.graphics.painter.Painter,
     maxHeightFraction: Float

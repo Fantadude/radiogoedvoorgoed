@@ -14,6 +14,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaMetadata
+import android.media.MediaPlayer
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Binder
@@ -25,34 +26,72 @@ import com.example.radiogvg.R
 import com.example.radiogvg.network.RadioApiClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+
+private const val PREFS_NAME = "MediaPlaybackPrefs"
+private const val KEY_PODCAST_URL = "podcast_url"
+private const val KEY_PODCAST_TITLE = "podcast_title"
+private const val KEY_PODCAST_ARTIST = "podcast_artist"
+private const val KEY_PODCAST_COVER = "podcast_cover"
+private const val KEY_PODCAST_POSITION = "podcast_position"
+private const val KEY_PODCAST_WAS_PLAYING = "podcast_was_playing"
+private const val KEY_PLAYBACK_MODE = "playback_mode"
 
 /**
- * MediaPlaybackService - Foreground service for radio playback with:
+ * MediaPlaybackService - Unified foreground service for both radio and podcast playback:
+ * - Handles radio stream and podcast episodes
+ * - Only one audio source plays at a time (mutual exclusivity)
  * - MediaSession for lock screen controls and Bluetooth
  * - Notification with play/pause controls
  * - Audio focus handling
- * - Background playback (won't stop when app is swiped away)
+ * - Background playback (won't stop when app is swiped away or navigating)
  */
 class MediaPlaybackService : Service() {
 
     companion object {
-        const val ACTION_PLAY = "com.example.radiogvg.ACTION_PLAY"
+        const val ACTION_PLAY_RADIO = "com.example.radiogvg.ACTION_PLAY_RADIO"
+        const val ACTION_PLAY_PODCAST = "com.example.radiogvg.ACTION_PLAY_PODCAST"
         const val ACTION_PAUSE = "com.example.radiogvg.ACTION_PAUSE"
         const val ACTION_STOP = "com.example.radiogvg.ACTION_STOP"
-        const val NOTIFICATION_CHANNEL_ID = "radio_playback_channel"
+        const val ACTION_SEEK_PODCAST = "com.example.radiogvg.ACTION_SEEK_PODCAST"
+        const val EXTRA_PODCAST_URL = "podcast_url"
+        const val EXTRA_PODCAST_TITLE = "podcast_title"
+        const val EXTRA_PODCAST_ARTIST = "podcast_artist"
+        const val EXTRA_PODCAST_COVER = "podcast_cover"
+        const val EXTRA_SEEK_POSITION = "seek_position"
+        const val NOTIFICATION_CHANNEL_ID = "audio_playback_channel"
         const val NOTIFICATION_ID = 1
     }
 
-    private var mediaPlayer: android.media.MediaPlayer? = null
+    enum class PlaybackMode { NONE, RADIO, PODCAST }
+
+    private var mediaPlayer: MediaPlayer? = null
     private var mediaSession: MediaSession? = null
     private var audioManager: AudioManager? = null
     private var audioFocusRequest: AudioFocusRequest? = null
     private var isPlayingState = false
+    private var playbackMode = PlaybackMode.NONE
+    private var isForegroundService = false
+
+    // SharedPreferences for saving playback state
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
+
+    // Radio metadata
     private var currentTitle = "radiogoedvoorgoed"
-    private var currentArtist = ""
+    private var currentArtist = "Live Stream"
     private var currentArtUrl: String? = null
+
+    // Podcast metadata
+    private var podcastTitle = ""
+    private var podcastArtist = ""
+    private var podcastCoverUrl: String? = null
+    private var podcastDuration = 0
+    private var podcastPosition = 0
+
+    private var progressUpdateJob: Job? = null
 
     private val binder = LocalBinder()
 
@@ -60,10 +99,17 @@ class MediaPlaybackService : Service() {
         fun getService(): MediaPlaybackService = this@MediaPlaybackService
     }
 
+    // Callback interface for UI updates
+    interface PlaybackCallback {
+        fun onPlaybackStateChanged(isPlaying: Boolean, mode: PlaybackMode)
+        fun onProgressUpdate(position: Int, duration: Int)
+        fun onMetadataUpdate(title: String, artist: String, coverUrl: String?)
+    }
+    private var playbackCallback: PlaybackCallback? = null
+
     private val becomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
-                // Pause when headphones are disconnected
                 pause()
             }
         }
@@ -73,7 +119,7 @@ class MediaPlaybackService : Service() {
         super.onCreate()
         createNotificationChannel()
         initMediaSession()
-        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
 
         // Register for headphone disconnect events
         registerReceiver(
@@ -85,19 +131,98 @@ class MediaPlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_PLAY -> play()
+        // Handle null intent (service restarted by system) - restore if needed
+        if (intent == null) {
+            restorePlaybackStateIfNeeded()
+            return START_STICKY
+        }
+
+        // Ensure service is foreground immediately to avoid ANR on Android 12+
+        // We'll update the notification later when playback actually starts
+        if (!isForegroundService) {
+            startForeground(NOTIFICATION_ID, createNotification())
+            isForegroundService = true
+        }
+
+        when (intent.action) {
+            ACTION_PLAY_RADIO -> playRadio()
+            ACTION_PLAY_PODCAST -> {
+                val url = intent.getStringExtra(EXTRA_PODCAST_URL) ?: return START_STICKY
+                val title = intent.getStringExtra(EXTRA_PODCAST_TITLE) ?: "Podcast"
+                val artist = intent.getStringExtra(EXTRA_PODCAST_ARTIST) ?: ""
+                val cover = intent.getStringExtra(EXTRA_PODCAST_COVER)
+                playPodcast(url, title, artist, cover)
+            }
             ACTION_PAUSE -> pause()
             ACTION_STOP -> stop()
+            ACTION_SEEK_PODCAST -> {
+                val position = intent.getIntExtra(EXTRA_SEEK_POSITION, 0)
+                seekTo(position)
+            }
         }
-        return START_STICKY // Keep service running even if app is killed
+        return START_STICKY
     }
+
+    private fun savePlaybackState() {
+        prefs.edit().apply {
+            putString(KEY_PODCAST_URL, podcastUrl)
+            putString(KEY_PODCAST_TITLE, podcastTitle)
+            putString(KEY_PODCAST_ARTIST, podcastArtist)
+            putString(KEY_PODCAST_COVER, podcastCoverUrl)
+            putInt(KEY_PODCAST_POSITION, podcastPosition)
+            putBoolean(KEY_PODCAST_WAS_PLAYING, isPlayingState)
+            putString(KEY_PLAYBACK_MODE, playbackMode.name)
+            apply()
+        }
+    }
+
+    private fun clearPlaybackState() {
+        prefs.edit().apply {
+            remove(KEY_PODCAST_URL)
+            remove(KEY_PODCAST_TITLE)
+            remove(KEY_PODCAST_ARTIST)
+            remove(KEY_PODCAST_COVER)
+            remove(KEY_PODCAST_POSITION)
+            remove(KEY_PODCAST_WAS_PLAYING)
+            remove(KEY_PLAYBACK_MODE)
+            apply()
+        }
+    }
+
+    private fun restorePlaybackStateIfNeeded() {
+        // Only restore if we have a saved podcast that was playing
+        val savedUrl = prefs.getString(KEY_PODCAST_URL, null)
+        val wasPlaying = prefs.getBoolean(KEY_PODCAST_WAS_PLAYING, false)
+        val savedMode = prefs.getString(KEY_PLAYBACK_MODE, PlaybackMode.NONE.name)
+
+        if (savedUrl != null && wasPlaying) {
+            // Restore podcast playback
+            val title = prefs.getString(KEY_PODCAST_TITLE, "Podcast") ?: "Podcast"
+            val artist = prefs.getString(KEY_PODCAST_ARTIST, "") ?: ""
+            val cover = prefs.getString(KEY_PODCAST_COVER, null)
+            val position = prefs.getInt(KEY_PODCAST_POSITION, 0)
+
+            // Restore and seek to saved position
+            playPodcast(savedUrl, title, artist, cover, position)
+        } else if (savedMode == PlaybackMode.RADIO.name && wasPlaying) {
+            // Restore radio playback
+            playRadio()
+        }
+    }
+
+    // Add this property to track current podcast URL
+    private var podcastUrl: String = ""
 
     private fun initMediaSession() {
         mediaSession = MediaSession(this, "RadioPlaybackSession").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
-                    play()
+                    // Resume current playback
+                    mediaPlayer?.start()
+                    isPlayingState = true
+                    updatePlaybackState()
+                    updateNotification()
+                    playbackCallback?.onPlaybackStateChanged(true, playbackMode)
                 }
 
                 override fun onPause() {
@@ -107,9 +232,22 @@ class MediaPlaybackService : Service() {
                 override fun onStop() {
                     stop()
                 }
+
+                override fun onSeekTo(pos: Long) {
+                    if (playbackMode == PlaybackMode.PODCAST) {
+                        seekTo(pos.toInt())
+                    }
+                }
+
+                override fun onSkipToNext() {
+                    // Could implement skip to next podcast
+                }
+
+                override fun onSkipToPrevious() {
+                    // Could implement skip to previous podcast
+                }
             })
 
-            // Enable callbacks from Bluetooth, lock screen, etc.
             @Suppress("DEPRECATION")
             setFlags(
                 MediaSession.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -126,7 +264,12 @@ class MediaPlaybackService : Service() {
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setContentType(
+                            if (playbackMode == PlaybackMode.PODCAST)
+                                AudioAttributes.CONTENT_TYPE_SPEECH
+                            else
+                                AudioAttributes.CONTENT_TYPE_MUSIC
+                        )
                         .build()
                 )
                 .setOnAudioFocusChangeListener { focusChange ->
@@ -169,65 +312,35 @@ class MediaPlaybackService : Service() {
         }
     }
 
-    fun play() {
+    fun playRadio() {
+        // Stop any existing podcast playback
+        stopPlaybackInternal()
+
         if (!requestAudioFocus()) return
 
-        if (mediaPlayer == null) {
-            // Create MediaPlayer on background thread to avoid blocking main thread
-            CoroutineScope(Dispatchers.IO).launch {
-                createMediaPlayer()
-            }
-        } else {
-            mediaPlayer?.start()
-            isPlayingState = true
-            updatePlaybackState()
-            updateNotification()
-            updateMediaSessionMetadata()
+        playbackMode = PlaybackMode.RADIO
+        currentTitle = "radiogoedvoorgoed"
+        currentArtist = "Live Stream"
+
+        // Save radio state for restoration
+        savePlaybackState()
+
+        // Ensure we're a foreground service with notification
+        if (!isForegroundService) {
+            startForeground(NOTIFICATION_ID, createNotification())
+            isForegroundService = true
+        }
+
+        // Create MediaPlayer on background thread
+        CoroutineScope(Dispatchers.IO).launch {
+            createRadioMediaPlayer()
         }
     }
 
-    fun pause() {
-        // Completely stop and release the MediaPlayer to prevent stale buffer issues
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
-        mediaPlayer = null
-        isPlayingState = false
-        abandonAudioFocus()
-        updatePlaybackState()
-        updateNotification()
-        updateMediaSessionMetadata()
-    }
-
-    fun stop() {
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
-        mediaPlayer = null
-        isPlayingState = false
-        abandonAudioFocus()
-        updatePlaybackState()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-    }
-
-    fun isPlaying(): Boolean = isPlayingState
-
-    fun setVolume(volume: Float) {
-        mediaPlayer?.setVolume(volume, volume)
-    }
-
-    fun updateMetadata(title: String, artist: String, artUrl: String?) {
-        currentTitle = title
-        currentArtist = artist
-        currentArtUrl = artUrl
-        updateMediaSessionMetadata()
-        if (isPlayingState) {
-            updateNotification()
-        }
-    }
-
-    private fun createMediaPlayer() {
+    private fun createRadioMediaPlayer() {
         try {
-            mediaPlayer = android.media.MediaPlayer().apply {
+            mediaPlayer?.release()
+                mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -238,82 +351,284 @@ class MediaPlaybackService : Service() {
                 setOnPreparedListener {
                     it.start()
                     isPlayingState = true
-                    // UI updates must be on main thread
+                    savePlaybackState()
                     CoroutineScope(Dispatchers.Main).launch {
                         updatePlaybackState()
-                        startForeground(NOTIFICATION_ID, createNotification())
+                        updateNotification()
                         updateMediaSessionMetadata()
+                        playbackCallback?.onPlaybackStateChanged(true, PlaybackMode.RADIO)
                     }
                 }
                 setOnErrorListener { _, _, _ ->
                     isPlayingState = false
                     CoroutineScope(Dispatchers.Main).launch {
                         updatePlaybackState()
+                        playbackCallback?.onPlaybackStateChanged(false, PlaybackMode.RADIO)
                     }
                     true
                 }
                 setOnCompletionListener {
-                    // For live stream, this shouldn't happen, but restart if it does
-                    createMediaPlayer()
+                    // For live stream, restart if it stops unexpectedly
+                    if (playbackMode == PlaybackMode.RADIO) {
+                        createRadioMediaPlayer()
+                    }
                 }
-                // Use sync prepare on IO thread - it's faster for live streams
                 prepare()
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            // If prepare fails, try async as fallback on main thread
+        }
+    }
+
+    fun playPodcast(url: String, title: String, artist: String, coverUrl: String?, seekToPosition: Int = 0) {
+        // Stop any existing radio playback
+        stopPlaybackInternal()
+
+        if (!requestAudioFocus()) return
+
+        playbackMode = PlaybackMode.PODCAST
+        podcastUrl = url
+        podcastTitle = title
+        podcastArtist = artist
+        podcastCoverUrl = coverUrl
+        podcastPosition = seekToPosition
+
+        // Save state immediately for restoration if service is killed
+        savePlaybackState()
+
+        // Ensure we're a foreground service with notification
+        if (!isForegroundService) {
+            startForeground(NOTIFICATION_ID, createNotification())
+            isForegroundService = true
+        }
+
+        CoroutineScope(Dispatchers.IO).launch {
             try {
-                CoroutineScope(Dispatchers.Main).launch {
-                    mediaPlayer?.prepareAsync()
+                mediaPlayer?.release()
+                mediaPlayer = MediaPlayer().apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    setDataSource(url)
+                    setOnPreparedListener { mp ->
+                        podcastDuration = mp.duration
+                        // Seek to saved position if restoring (only if duration is valid)
+                        if (podcastDuration > 0 && seekToPosition > 0 && seekToPosition < podcastDuration) {
+                            mp.seekTo(seekToPosition)
+                        }
+                        mp.start()
+                        isPlayingState = true
+                        // Save state now that we're playing
+                        savePlaybackState()
+                        CoroutineScope(Dispatchers.Main).launch {
+                            updatePlaybackState()
+                            updateNotification()
+                            updateMediaSessionMetadata()
+                            startProgressUpdates()
+                            playbackCallback?.onPlaybackStateChanged(true, PlaybackMode.PODCAST)
+                            playbackCallback?.onMetadataUpdate(title, artist, coverUrl)
+                        }
+                    }
+                    setOnCompletionListener {
+                        isPlayingState = false
+                        stopProgressUpdates()
+                        clearPlaybackState()
+                        CoroutineScope(Dispatchers.Main).launch {
+                            updatePlaybackState()
+                            updateNotification()
+                            playbackCallback?.onPlaybackStateChanged(false, PlaybackMode.PODCAST)
+                        }
+                    }
+                    setOnErrorListener { _, _, _ ->
+                        isPlayingState = false
+                        stopProgressUpdates()
+                        CoroutineScope(Dispatchers.Main).launch {
+                            updatePlaybackState()
+                            playbackCallback?.onPlaybackStateChanged(false, PlaybackMode.PODCAST)
+                        }
+                        true
+                    }
+                    prepareAsync()
                 }
-            } catch (e2: Exception) {
-                e2.printStackTrace()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                CoroutineScope(Dispatchers.Main).launch {
+                    playbackCallback?.onPlaybackStateChanged(false, PlaybackMode.PODCAST)
+                }
+            }
+        }
+    }
+
+    private fun startProgressUpdates() {
+        progressUpdateJob?.cancel()
+        progressUpdateJob = CoroutineScope(Dispatchers.Main).launch {
+            var saveCounter = 0
+            while (isActive && playbackMode == PlaybackMode.PODCAST) {
+                mediaPlayer?.let { player ->
+                    if (player.isPlaying) {
+                        podcastPosition = player.currentPosition
+                        playbackCallback?.onProgressUpdate(podcastPosition, podcastDuration)
+                        // Save position every 5 seconds
+                        saveCounter++
+                        if (saveCounter >= 5) {
+                            savePlaybackState()
+                            saveCounter = 0
+                        }
+                    }
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    private fun stopProgressUpdates() {
+        progressUpdateJob?.cancel()
+        progressUpdateJob = null
+    }
+
+    fun seekTo(position: Int) {
+        if (playbackMode == PlaybackMode.PODCAST) {
+            mediaPlayer?.seekTo(position)
+            podcastPosition = position
+        }
+    }
+
+    private fun stopPlaybackInternal() {
+        stopProgressUpdates()
+        mediaPlayer?.stop()
+        mediaPlayer?.release()
+        mediaPlayer = null
+        isPlayingState = false
+        playbackMode = PlaybackMode.NONE
+        abandonAudioFocus()
+    }
+
+    fun pause() {
+        mediaPlayer?.pause()
+        isPlayingState = false
+        stopProgressUpdates()
+        // Save state so we can resume later
+        savePlaybackState()
+        updatePlaybackState()
+        updateNotification()
+        playbackCallback?.onPlaybackStateChanged(false, playbackMode)
+    }
+
+    fun resume() {
+        if (mediaPlayer != null && playbackMode != PlaybackMode.NONE) {
+            mediaPlayer?.start()
+            isPlayingState = true
+            if (playbackMode == PlaybackMode.PODCAST) {
+                startProgressUpdates()
+            }
+            updatePlaybackState()
+            updateNotification()
+            playbackCallback?.onPlaybackStateChanged(true, playbackMode)
+        }
+    }
+
+    fun stop() {
+        stopPlaybackInternal()
+        // Clear saved state since user explicitly stopped
+        clearPlaybackState()
+        updatePlaybackState()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        isForegroundService = false
+        stopSelf()
+        playbackCallback?.onPlaybackStateChanged(false, PlaybackMode.NONE)
+    }
+
+    fun isPlaying(): Boolean = isPlayingState
+    fun getPlaybackMode(): PlaybackMode = playbackMode
+    fun getCurrentPosition(): Int = mediaPlayer?.currentPosition ?: 0
+    fun getDuration(): Int = mediaPlayer?.duration ?: 0
+
+    // Getters for podcast metadata
+    fun getPodcastUrl(): String = podcastUrl
+    fun getPodcastTitle(): String = podcastTitle
+    fun getPodcastCoverUrl(): String? = podcastCoverUrl
+
+    fun setVolume(volume: Float) {
+        val safeVolume = volume.coerceIn(0f, 1f)
+        mediaPlayer?.setVolume(safeVolume, safeVolume)
+    }
+
+    fun setPlaybackCallback(callback: PlaybackCallback?) {
+        playbackCallback = callback
+    }
+
+    fun updateRadioMetadata(title: String, artist: String, artUrl: String?) {
+        if (playbackMode == PlaybackMode.RADIO) {
+            currentTitle = title
+            currentArtist = artist
+            currentArtUrl = artUrl
+            updateMediaSessionMetadata()
+            if (isPlayingState) {
+                updateNotification()
             }
         }
     }
 
     private fun updatePlaybackState() {
-        val state = if (isPlayingState) {
-            PlaybackState.STATE_PLAYING
+        val state = if (isPlayingState) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+
+        val actions = PlaybackState.ACTION_PLAY or
+                PlaybackState.ACTION_PAUSE or
+                PlaybackState.ACTION_STOP or
+                PlaybackState.ACTION_PLAY_PAUSE
+
+        // Add seek actions for podcasts
+        val finalActions = if (playbackMode == PlaybackMode.PODCAST) {
+            actions or PlaybackState.ACTION_SEEK_TO
         } else {
-            PlaybackState.STATE_PAUSED
+            actions
         }
 
         mediaSession?.setPlaybackState(
             PlaybackState.Builder()
-                .setState(state, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
-                .setActions(
-                    PlaybackState.ACTION_PLAY or
-                    PlaybackState.ACTION_PAUSE or
-                    PlaybackState.ACTION_STOP or
-                    PlaybackState.ACTION_PLAY_PAUSE
-                )
+                .setState(state, getCurrentPosition().toLong(), 1.0f)
+                .setActions(finalActions)
                 .build()
         )
     }
 
     private fun updateMediaSessionMetadata() {
-        mediaSession?.setMetadata(
-            MediaMetadata.Builder()
-                .putString(MediaMetadata.METADATA_KEY_TITLE, currentTitle)
-                .putString(MediaMetadata.METADATA_KEY_ARTIST, currentArtist)
-                .putString(MediaMetadata.METADATA_KEY_ALBUM, "radiogoedvoorgoed")
-                .putBitmap(
-                    MediaMetadata.METADATA_KEY_ART,
-                    BitmapFactory.decodeResource(resources, R.drawable.radio_logo)
-                )
-                .build()
+        val (title, artist) = when (playbackMode) {
+            PlaybackMode.RADIO -> currentTitle to currentArtist
+            PlaybackMode.PODCAST -> podcastTitle to podcastArtist
+            PlaybackMode.NONE -> "radiogoedvoorgoed" to ""
+        }
+
+        val builder = MediaMetadata.Builder()
+            .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)
+            .putString(MediaMetadata.METADATA_KEY_ALBUM, "radiogoedvoorgoed")
+
+        // Add duration for podcasts
+        if (playbackMode == PlaybackMode.PODCAST && podcastDuration > 0) {
+            builder.putLong(MediaMetadata.METADATA_KEY_DURATION, podcastDuration.toLong())
+        }
+
+        // Use cover image if available, otherwise fallback to radio logo
+        builder.putBitmap(
+            MediaMetadata.METADATA_KEY_ART,
+            BitmapFactory.decodeResource(resources, R.drawable.radio_logo)
         )
+
+        mediaSession?.setMetadata(builder.build())
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 NOTIFICATION_CHANNEL_ID,
-                "Radio Playback",
+                "Audio Playback",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows radio playback controls"
+                description = "Shows audio playback controls"
                 setShowBadge(false)
             }
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -322,6 +637,12 @@ class MediaPlaybackService : Service() {
     }
 
     private fun createNotification(): Notification {
+        val (title, artist) = when (playbackMode) {
+            PlaybackMode.RADIO -> currentTitle to currentArtist
+            PlaybackMode.PODCAST -> podcastTitle to podcastArtist
+            PlaybackMode.NONE -> "radiogoedvoorgoed" to "Paused"
+        }
+
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
@@ -331,18 +652,9 @@ class MediaPlaybackService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val playIntent = PendingIntent.getService(
-            this,
-            0,
-            Intent(this, MediaPlaybackService::class.java).apply {
-                action = ACTION_PLAY
-            },
-            PendingIntent.FLAG_IMMUTABLE
-        )
-
         val pauseIntent = PendingIntent.getService(
             this,
-            1,
+            0,
             Intent(this, MediaPlaybackService::class.java).apply {
                 action = ACTION_PAUSE
             },
@@ -351,7 +663,7 @@ class MediaPlaybackService : Service() {
 
         val stopIntent = PendingIntent.getService(
             this,
-            2,
+            1,
             Intent(this, MediaPlaybackService::class.java).apply {
                 action = ACTION_STOP
             },
@@ -360,17 +672,16 @@ class MediaPlaybackService : Service() {
 
         val playPauseIcon = if (isPlayingState) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         val playPauseTitle = if (isPlayingState) "Pause" else "Play"
-        val playPauseIntent = if (isPlayingState) pauseIntent else playIntent
 
         val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(currentTitle)
-            .setContentText(currentArtist.ifBlank { "Live Stream" })
+            .setContentTitle(title)
+            .setContentText(artist)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setLargeIcon(BitmapFactory.decodeResource(resources, R.drawable.radio_logo))
             .setContentIntent(contentIntent)
-            .setOngoing(true)
+            .setOngoing(isPlayingState)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .addAction(playPauseIcon, playPauseTitle, playPauseIntent)
+            .addAction(playPauseIcon, playPauseTitle, pauseIntent)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
             .setStyle(
                 androidx.media.app.NotificationCompat.MediaStyle()
@@ -392,11 +703,12 @@ class MediaPlaybackService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isForegroundService = false
         try {
             unregisterReceiver(becomingNoisyReceiver)
         } catch (_: IllegalArgumentException) {
-            // Receiver wasn't registered
         }
+        stopProgressUpdates()
         abandonAudioFocus()
         mediaPlayer?.release()
         mediaPlayer = null
