@@ -26,6 +26,9 @@ body {
   background: var(--background-dark);
   color: var(--text-primary);
   min-height: 100vh;
+  /* Prevent bounce/overscroll on iOS */
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 #root {
