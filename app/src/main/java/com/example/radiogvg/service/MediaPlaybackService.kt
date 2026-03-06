@@ -17,9 +17,11 @@ import android.media.MediaMetadata
 import android.media.MediaPlayer
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.net.wifi.WifiManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.example.radiogvg.MainActivity
 import com.example.radiogvg.R
@@ -93,6 +95,10 @@ class MediaPlaybackService : Service() {
 
     private var progressUpdateJob: Job? = null
 
+    // Wake locks to prevent CPU and Wi-Fi from sleeping during playback
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+
     private val binder = LocalBinder()
 
     inner class LocalBinder : Binder() {
@@ -120,6 +126,24 @@ class MediaPlaybackService : Service() {
         createNotificationChannel()
         initMediaSession()
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+
+        // Initialize wake locks
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "RadioGvG::MediaPlaybackWakeLock"
+        ).apply {
+            setReferenceCounted(false)
+        }
+
+        val wifiManager = getSystemService(WIFI_SERVICE) as WifiManager
+        @Suppress("DEPRECATION")
+        wifiLock = wifiManager.createWifiLock(
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+            "RadioGvG::MediaPlaybackWifiLock"
+        ).apply {
+            setReferenceCounted(false)
+        }
 
         // Register for headphone disconnect events
         registerReceiver(
@@ -312,6 +336,24 @@ class MediaPlaybackService : Service() {
         }
     }
 
+    private fun acquireWakeLocks() {
+        try {
+            wakeLock?.takeIf { !it.isHeld }?.acquire(10 * 60 * 1000L) // 10 minute timeout, auto-renews
+            wifiLock?.takeIf { !it.isHeld }?.acquire()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun releaseWakeLocks() {
+        try {
+            wakeLock?.takeIf { it.isHeld }?.release()
+            wifiLock?.takeIf { it.isHeld }?.release()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun playRadio() {
         // Stop any existing podcast playback
         stopPlaybackInternal()
@@ -324,6 +366,9 @@ class MediaPlaybackService : Service() {
 
         // Save radio state for restoration
         savePlaybackState()
+
+        // Acquire wake locks to prevent CPU and Wi-Fi sleep during playback
+        acquireWakeLocks()
 
         // Ensure we're a foreground service with notification
         if (!isForegroundService) {
@@ -395,6 +440,9 @@ class MediaPlaybackService : Service() {
 
         // Save state immediately for restoration if service is killed
         savePlaybackState()
+
+        // Acquire wake locks to prevent CPU and Wi-Fi sleep during playback
+        acquireWakeLocks()
 
         // Ensure we're a foreground service with notification
         if (!isForegroundService) {
@@ -504,6 +552,7 @@ class MediaPlaybackService : Service() {
         isPlayingState = false
         playbackMode = PlaybackMode.NONE
         abandonAudioFocus()
+        releaseWakeLocks()
     }
 
     fun pause() {
@@ -515,10 +564,13 @@ class MediaPlaybackService : Service() {
         updatePlaybackState()
         updateNotification()
         playbackCallback?.onPlaybackStateChanged(false, playbackMode)
+        releaseWakeLocks()
     }
 
     fun resume() {
         if (mediaPlayer != null && playbackMode != PlaybackMode.NONE) {
+            // Re-acquire wake locks when resuming playback
+            acquireWakeLocks()
             mediaPlayer?.start()
             isPlayingState = true
             if (playbackMode == PlaybackMode.PODCAST) {
@@ -710,6 +762,7 @@ class MediaPlaybackService : Service() {
         }
         stopProgressUpdates()
         abandonAudioFocus()
+        releaseWakeLocks()
         mediaPlayer?.release()
         mediaPlayer = null
         mediaSession?.release()
