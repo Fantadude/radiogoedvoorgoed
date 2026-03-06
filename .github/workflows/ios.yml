@@ -41,10 +41,17 @@ jobs:
       run: |
         # Initialize the iOS platform if it doesn't exist
         if [ ! -d "ios" ]; then
+          echo "Adding iOS platform..."
           npx cap add ios
+        else
+          echo "iOS platform already exists"
         fi
         # Sync the web build with iOS
         npx cap sync ios
+        
+        # List what was created for debugging
+        echo "=== iOS directory contents ==="
+        ls -la ios/
 
     - name: Build unsigned IPA
       working-directory: ./web/ios
@@ -52,9 +59,23 @@ jobs:
         # Create build directory
         mkdir -p build
         
+        # Determine project file to use
+        if [ -f "App.xcworkspace" ]; then
+          echo "Using workspace: App.xcworkspace"
+          PROJECT_ARG="-workspace App.xcworkspace"
+        elif [ -f "App.xcodeproj/project.pbxproj" ]; then
+          echo "Using project: App.xcodeproj"
+          PROJECT_ARG="-project App.xcodeproj"
+        else
+          echo "Error: Neither workspace nor project found"
+          echo "Available files:"
+          ls -la
+          exit 1
+        fi
+        
         # Build the iOS app without code signing
         xcodebuild \
-          -workspace App.xcworkspace \
+          $PROJECT_ARG \
           -scheme App \
           -configuration Release \
           -destination 'generic/platform=iOS' \
@@ -64,20 +85,21 @@ jobs:
           CODE_SIGN_IDENTITY="" \
           PROVISIONING_PROFILE="" \
           ONLY_ACTIVE_ARCH=NO \
-          ARCHS="arm64 x86_64" \
+          ARCHS="arm64" \
           build
 
         # Create Payload directory structure for IPA
         mkdir -p ./build/Payload
         
         # Find and copy the app bundle
-        APP_PATH=$(find ./build/Build/Products/Release-iphoneos -name "*.app" -type d | head -n 1)
+        APP_PATH=$(find ./build/Build/Products/Release-iphoneos -name "*.app" -type d 2>/dev/null | head -n 1)
         if [ -z "$APP_PATH" ]; then
-          # Try simulator build as fallback
-          APP_PATH=$(find ./build/Build/Products -name "*.app" -type d | head -n 1)
+          # Try any build products directory
+          APP_PATH=$(find ./build/Build/Products -name "*.app" -type d 2>/dev/null | head -n 1)
         fi
         
         if [ -n "$APP_PATH" ]; then
+          echo "Found app bundle at: $APP_PATH"
           cp -R "$APP_PATH" ./build/Payload/
           
           # Create the IPA
@@ -89,6 +111,8 @@ jobs:
           ls -lh ./RadioGoedvoorGoed-unsigned.ipa
         else
           echo "Error: Could not find .app bundle"
+          echo "Build products directory contents:"
+          find ./build/Build/Products -type d 2>/dev/null || echo "No products directory found"
           exit 1
         fi
 
