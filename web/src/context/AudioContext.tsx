@@ -57,6 +57,10 @@ interface AudioContextType extends AudioState {
 const RADIO_STREAM_URL = 'https://ex52.voordeligstreamen.nl/8154/stream';
 const AUDIO_PLAYING_EVENT = 'audioPlaying';
 
+// iOS detection
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
 const defaultRadioMetadata: RadioMetadata = {
   title: 'radiogoedvoorgoed',
   artist: 'Live Stream',
@@ -121,18 +125,22 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Listen for podcast events from other components
+  // Handle visibility changes for battery optimization
   useEffect(() => {
-    const handleOtherAudioPlaying = (event: CustomEvent) => {
-      if (event.detail?.source === 'podcast' && globalAudioState.mode === 'radio') {
-        // Stop radio when podcast starts
-        stopRadioInternal();
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // App is in background - audio continues playing
+        // but we can reduce other background activity
+        console.log('App in background - audio continues');
+      } else {
+        // App is visible again
+        console.log('App visible');
       }
     };
 
-    window.addEventListener(AUDIO_PLAYING_EVENT, handleOtherAudioPlaying as EventListener);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.removeEventListener(AUDIO_PLAYING_EVENT, handleOtherAudioPlaying as EventListener);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -267,7 +275,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const audio = new Audio();
       audio.src = RADIO_STREAM_URL;
       audio.volume = globalAudioState.volume;
-      audio.preload = 'none';
+      // iOS: use metadata preload for faster start, none for others
+      audio.preload = isIOS ? 'metadata' : 'none';
 
       // @ts-ignore
       if ('audioSession' in audio) {
@@ -276,19 +285,19 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       }
 
       // Add error handling and auto-recovery for radio stream
-      audio.addEventListener('error', () => {
-        console.error('Radio stream error, attempting to reconnect...');
+      audio.addEventListener('error', (e) => {
+        console.error('Radio stream error, attempting to reconnect...', e);
         const wasPlaying = globalAudioState.isPlaying;
         globalAudioState.isPlaying = false;
         notifyListeners();
 
-        // Auto-retry after 2 seconds if we were playing
+        // Auto-retry after shorter delay on iOS
         if (wasPlaying && globalAudioState.mode === 'radio') {
           setTimeout(() => {
             if (globalAudioState.mode === 'radio') {
               playRadioInternal();
             }
-          }, 2000);
+          }, isIOS ? 1000 : 2000);
         }
       });
 
@@ -310,7 +319,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         if (globalAudioState.mode === 'radio') {
           setTimeout(() => {
             playRadioInternal();
-          }, 1000);
+          }, isIOS ? 500 : 1000);
         }
       });
 

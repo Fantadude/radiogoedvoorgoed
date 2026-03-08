@@ -13,8 +13,9 @@ const config: CapacitorConfig = {
     contentInset: 'always',
     allowsLinkPreview: false,
     scrollEnabled: true,
-    // Disable background audio restrictions
-    backgroundColor: '#87CEEB',
+    backgroundColor: '#1a1a2e', // Match dark theme
+    // Disable webview bounce for app-like feel
+    limitsNavigationsToAppBoundaries: true,
   },
   plugins: {
     // Enable background audio
@@ -27,7 +28,15 @@ const config: CapacitorConfig = {
     preferences: {
       KeepRunning: 'true',
       BackgroundAudio: 'true',
+      // iOS specific
+      StatusBarOverlaysWebView: 'true',
+      StatusBarStyle: 'lightcontent',
     },
+  },
+  // Background mode configuration
+  backgroundMode: {
+    enable: true,
+    silent: true,
   },
 };
 

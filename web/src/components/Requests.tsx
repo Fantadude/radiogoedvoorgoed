@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './Requests.css';
 
 const API_BASE_URL = 'http://86.84.18.58:3000'; // Your radio server API
@@ -29,6 +29,7 @@ export default function Requests() {
   const [, setRequests] = useState<SongRequest[]>([]);
   const [selectedLetter, setSelectedLetter] = useState('A');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchMode, setIsSearchMode] = useState(false);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [username, setUsername] = useState('');
   const [message, setMessage] = useState('');
@@ -36,24 +37,28 @@ export default function Requests() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'browse' | 'search'>('browse');
+
+  const alphabetScrollRef = useRef<HTMLDivElement>(null);
 
   // Load songs by letter
   useEffect(() => {
-    if (activeTab === 'browse') {
+    if (!isSearchMode) {
       fetchSongsByLetter(selectedLetter);
     }
-  }, [selectedLetter, activeTab]);
+  }, [selectedLetter, isSearchMode]);
 
-  // Search songs
+  // Search songs when query changes (with debounce)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      if (activeTab === 'search' && searchQuery.trim()) {
+      if (isSearchMode && searchQuery.trim().length >= 2) {
         searchSongs(searchQuery);
+      } else if (isSearchMode && searchQuery.trim().length === 0) {
+        setIsSearchMode(false);
+        fetchSongsByLetter(selectedLetter);
       }
     }, 300);
     return () => clearTimeout(timeoutId);
-  }, [searchQuery, activeTab]);
+  }, [searchQuery, isSearchMode, selectedLetter]);
 
   const fetchSongsByLetter = async (letter: string) => {
     setIsLoading(true);
@@ -91,6 +96,37 @@ export default function Requests() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    setIsSearchMode(value.length > 0);
+  };
+
+  const handleLetterSelect = (letter: string) => {
+    setSelectedLetter(letter);
+    setIsSearchMode(false);
+    setSearchQuery('');
+    
+    // Scroll selected letter into view
+    if (alphabetScrollRef.current) {
+      const button = alphabetScrollRef.current.querySelector(`[data-letter="${letter}"]`) as HTMLElement;
+      if (button) {
+        button.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+      }
+    }
+  };
+
+  const handleSongSelect = (song: Song) => {
+    setSelectedSong(song);
+    setError(null);
+    setSuccess(null);
+  };
+
+  const handleBackToList = () => {
+    setSelectedSong(null);
+    setError(null);
+    setSuccess(null);
   };
 
   const handleSubmitRequest = async (e: React.FormEvent) => {
@@ -144,7 +180,6 @@ export default function Requests() {
 
   const formatDuration = (duration: string) => {
     if (!duration) return '0:00';
-    // Duration is likely in seconds from MySQL
     const seconds = parseInt(duration, 10);
     if (isNaN(seconds)) return duration;
     const mins = Math.floor(seconds / 60);
@@ -152,107 +187,33 @@ export default function Requests() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  return (
-    <div className="requests">
-      <div className="requests-container">
-        {/* Song Selection */}
-        <div className="songs-section">
-          <h2>Select a Song</h2>
-          
-          {/* Tab Navigation */}
-          <div className="tab-nav">
+  // Android-style: Full screen request form when song selected
+  if (selectedSong) {
+    return (
+      <div className="requests">
+        <div className="request-form-fullscreen">
+          {/* Selected Song Card */}
+          <div className="selected-song-card">
+            <span className="selected-label">Selected Song</span>
+            <h3 className="selected-song-title">{selectedSong.title}</h3>
+            <p className="selected-song-artist">{selectedSong.artist}</p>
             <button 
-              className={activeTab === 'browse' ? 'active' : ''}
-              onClick={() => setActiveTab('browse')}
+              type="button" 
+              className="change-song-btn"
+              onClick={handleBackToList}
             >
-              Browse by Letter
-            </button>
-            <button 
-              className={activeTab === 'search' ? 'active' : ''}
-              onClick={() => setActiveTab('search')}
-            >
-              Search
+              Change Song
             </button>
           </div>
 
-          {/* Alphabet Filter (Browse mode) */}
-          {activeTab === 'browse' && (
-            <div className="alphabet-filter">
-              {ALPHABET.map(letter => (
-                <button
-                  key={letter}
-                  className={selectedLetter === letter ? 'active' : ''}
-                  onClick={() => setSelectedLetter(letter)}
-                >
-                  {letter}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Search Input (Search mode) */}
-          {activeTab === 'search' && (
-            <div className="search-box">
-              <input
-                type="text"
-                placeholder="Search by artist or song title..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-          )}
-
-          {/* Songs List */}
-          <div className="songs-list">
-            {isLoading ? (
-              <div className="loading-state">Loading songs...</div>
-            ) : songs.length === 0 ? (
-              <div className="empty-state">
-                {activeTab === 'search' 
-                  ? 'No songs found. Try a different search.' 
-                  : 'No songs found for this letter.'}
-              </div>
-            ) : (
-              songs.map((song) => (
-                <div 
-                  key={song.ID} 
-                  className={`song-item ${selectedSong?.ID === song.ID ? 'selected' : ''}`}
-                  onClick={() => setSelectedSong(song)}
-                >
-                  <div className="song-info">
-                    <span className="song-title">{song.title}</span>
-                    <span className="song-artist">{song.artist}</span>
-                    {song.album && <span className="song-album">{song.album}</span>}
-                  </div>
-                  <span className="song-duration">{formatDuration(song.duration)}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Request Form */}
-        <div className="request-form-section">
-          <h2>Request Details</h2>
-          
-          {error && <div className="error-message">{error}</div>}
-          {success && <div className="success-message">{success}</div>}
-          
-          {selectedSong ? (
+          {/* Request Form */}
+          <div className="request-details-card">
+            <h2>Request Details</h2>
+            
+            {error && <div className="error-message">{error}</div>}
+            {success && <div className="success-message">{success}</div>}
+            
             <form onSubmit={handleSubmitRequest}>
-              <div className="selected-song-info">
-                <h3>Selected Song:</h3>
-                <p className="selected-title">{selectedSong.title}</p>
-                <p className="selected-artist">{selectedSong.artist}</p>
-                <button 
-                  type="button" 
-                  className="clear-btn"
-                  onClick={() => setSelectedSong(null)}
-                >
-                  Change Song
-                </button>
-              </div>
-
               <div className="form-group">
                 <label htmlFor="username">Your Name</label>
                 <input
@@ -280,13 +241,110 @@ export default function Requests() {
                 className="submit-btn"
                 disabled={isSubmitting}
               >
-                {isSubmitting ? 'Submitting...' : 'Submit Request'}
+                {isSubmitting ? (
+                  <>
+                    <span className="spinner-small"></span>
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <svg viewBox="0 0 24 24" fill="currentColor" className="send-icon">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                    Submit Request
+                  </>
+                )}
               </button>
             </form>
-          ) : (
-            <div className="no-selection">
-              <p>Select a song from the list to make a request</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Song list view
+  return (
+    <div className="requests">
+      <div className="songs-section-fullwidth">
+        <h2>Select a Song</h2>
+        
+        {/* Dedicated Search Bar - Always visible */}
+        <div className="search-bar-container">
+          <div className="search-input-wrapper">
+            <svg viewBox="0 0 24 24" fill="currentColor" className="search-icon">
+              <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <input
+              type="text"
+              placeholder="Search songs or artists..."
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="search-input"
+            />
+            {searchQuery && (
+              <button 
+                className="clear-search-btn"
+                onClick={() => handleSearchChange('')}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Horizontal Scrollable Alphabet - Only show when not searching */}
+        {!isSearchMode && (
+          <div className="alphabet-scroll-container" ref={alphabetScrollRef}>
+            {ALPHABET.map(letter => (
+              <button
+                key={letter}
+                data-letter={letter}
+                className={`alphabet-pill ${selectedLetter === letter ? 'active' : ''}`}
+                onClick={() => handleLetterSelect(letter)}
+              >
+                {letter}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Search mode indicator */}
+        {isSearchMode && (
+          <div className="search-mode-indicator">
+            <span>Search results for "{searchQuery}"</span>
+            <button onClick={() => handleSearchChange('')}>Clear</button>
+          </div>
+        )}
+
+        {/* Songs List */}
+        <div className="songs-list-fullwidth">
+          {isLoading ? (
+            <div className="loading-state">
+              <span className="spinner"></span>
+              <p>Loading songs...</p>
             </div>
+          ) : songs.length === 0 ? (
+            <div className="empty-state">
+              {isSearchMode 
+                ? 'No songs found. Try a different search.' 
+                : `No songs found for "${selectedLetter}".`}
+            </div>
+          ) : (
+            songs.map((song) => (
+              <div 
+                key={song.ID} 
+                className="song-card"
+                onClick={() => handleSongSelect(song)}
+              >
+                <div className="song-card-info">
+                  <span className="song-card-title">{song.title}</span>
+                  <span className="song-card-artist">{song.artist}</span>
+                  {song.album && <span className="song-card-album">{song.album}</span>}
+                </div>
+                <span className="song-card-duration">{formatDuration(song.duration)}</span>
+              </div>
+            ))
           )}
         </div>
       </div>

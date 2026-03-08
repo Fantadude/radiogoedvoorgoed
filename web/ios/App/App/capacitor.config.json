@@ -1,0 +1,35 @@
+{
+	"appId": "nl.radiogoedvoorgoed.app",
+	"appName": "Radio GoedvoorGoed",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https",
+		"iosScheme": "https",
+		"cleartext": true
+	},
+	"ios": {
+		"contentInset": "always",
+		"allowsLinkPreview": false,
+		"scrollEnabled": true,
+		"backgroundColor": "#1a1a2e",
+		"limitsNavigationsToAppBoundaries": true
+	},
+	"plugins": {
+		"CapacitorHttp": {
+			"enabled": true
+		}
+	},
+	"cordova": {
+		"preferences": {
+			"KeepRunning": "true",
+			"BackgroundAudio": "true",
+			"StatusBarOverlaysWebView": "true",
+			"StatusBarStyle": "lightcontent"
+		}
+	},
+	"backgroundMode": {
+		"enable": true,
+		"silent": true
+	},
+	"packageClassList": []
+}

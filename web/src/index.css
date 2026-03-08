@@ -4,6 +4,7 @@
   box-sizing: border-box;
 }
 
+/* Dark mode (default) - matches current look */
 :root {
   --primary-color: #8B5CF6;
   --secondary-color: #EC4899;
@@ -15,6 +16,57 @@
   --success-color: #10B981;
   --warning-color: #fbbf24;
   --border-color: #2d3748;
+  --input-background: #0f0f1a;
+  --hover-background: rgba(139, 92, 246, 0.1);
+}
+
+/* Light mode */
+@media (prefers-color-scheme: light) {
+  :root {
+    --primary-color: #7C3AED;
+    --secondary-color: #DB2777;
+    --background-dark: #f8fafc;
+    --background-card: #ffffff;
+    --text-primary: #1e293b;
+    --text-secondary: #64748b;
+    --accent-color: #dc2626;
+    --success-color: #059669;
+    --warning-color: #d97706;
+    --border-color: #e2e8f0;
+    --input-background: #f1f5f9;
+    --hover-background: rgba(139, 92, 246, 0.05);
+  }
+}
+
+/* Manual theme override classes */
+[data-theme="dark"] {
+  --primary-color: #8B5CF6;
+  --secondary-color: #EC4899;
+  --background-dark: #1a1a2e;
+  --background-card: #16213e;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --accent-color: #e94560;
+  --success-color: #10B981;
+  --warning-color: #fbbf24;
+  --border-color: #2d3748;
+  --input-background: #0f0f1a;
+  --hover-background: rgba(139, 92, 246, 0.1);
+}
+
+[data-theme="light"] {
+  --primary-color: #7C3AED;
+  --secondary-color: #DB2777;
+  --background-dark: #f8fafc;
+  --background-card: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --accent-color: #dc2626;
+  --success-color: #059669;
+  --warning-color: #d97706;
+  --border-color: #e2e8f0;
+  --input-background: #f1f5f9;
+  --hover-background: rgba(139, 92, 246, 0.05);
 }
 
 body {
@@ -29,8 +81,26 @@ body {
   /* Prevent bounce/overscroll on iOS */
   overscroll-behavior: none;
   -webkit-overflow-scrolling: touch;
+  /* Prevent text size adjustment on orientation change */
+  -webkit-text-size-adjust: 100%;
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* iOS-specific optimizations */
+@supports (-webkit-touch-callout: none) {
+  /* CSS specific to iOS devices */
+  body {
+    /* Prevent callout menu */
+    -webkit-touch-callout: none;
+    /* Prevent text selection for UI elements */
+    -webkit-user-select: none;
+  }
+  
+  /* Allow text selection in inputs and content areas */
+  input, textarea, .song-info, .track-info, .podcast-info {
+    -webkit-user-select: text;
+  }
 }

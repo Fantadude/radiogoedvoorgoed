@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAudio } from '../context/AudioContext';
 import './RadioPlayer.css';
 
@@ -6,6 +6,10 @@ const RADIO_CONFIG = {
   streamUrl: 'https://ex52.voordeligstreamen.nl/8154/stream',
   nowPlayingUrl: 'https://ex52.voordeligstreamen.nl/cp/get_info.php?p=8154',
 };
+
+// Detect iOS
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+              (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
 export default function RadioPlayer() {
   const {
@@ -22,14 +26,29 @@ export default function RadioPlayer() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
+  const [connectionAttempt, setConnectionAttempt] = useState(0);
 
   const isRadioPlaying = isPlaying && mode === 'radio';
 
-  // Fetch current track info periodically
+  // Fetch current track info periodically - optimized for battery
   useEffect(() => {
+    let isMounted = true;
+    
     const fetchTrackInfo = async () => {
       try {
-        const response = await fetch(RADIO_CONFIG.nowPlayingUrl);
+        // Use AbortController for timeout on iOS
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), isIOS ? 5000 : 10000);
+        
+        const response = await fetch(RADIO_CONFIG.nowPlayingUrl, {
+          signal: controller.signal,
+          cache: 'no-cache',
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!isMounted) return;
+        
         if (response.ok) {
           const data = await response.json();
           // Centova JSON format
@@ -59,21 +78,29 @@ export default function RadioPlayer() {
           }
         }
       } catch (err) {
-        console.error('Failed to fetch track info:', err);
+        // Silently fail - don't show error for metadata fetch failures
+        if (isMounted && err instanceof Error && err.name !== 'AbortError') {
+          console.error('Failed to fetch track info:', err);
+        }
       }
     };
 
     fetchTrackInfo();
-    const interval = setInterval(fetchTrackInfo, 15000); // Update every 15 seconds
-    return () => clearInterval(interval);
-  }, [setRadioMetadata]);
+    // Longer interval when not playing to save battery
+    const interval = setInterval(fetchTrackInfo, isRadioPlaying ? 15000 : 30000);
+    
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isRadioPlaying, setRadioMetadata]);
 
   // Sync volume changes
   useEffect(() => {
     // Volume is managed by the context
   }, [volume]);
 
-  const togglePlay = () => {
+  const togglePlay = useCallback(() => {
     if (isRadioPlaying) {
       setIsLoading(false);
       setError(null);
@@ -81,17 +108,18 @@ export default function RadioPlayer() {
     } else {
       setIsLoading(true);
       setError(null);
+      setConnectionAttempt(prev => prev + 1);
 
-      // Set up a one-time check for loading state
+      // iOS-specific: shorter timeout for faster feedback
       const checkPlaying = setTimeout(() => {
         setIsLoading(false);
-      }, 2000);
+      }, isIOS ? 1500 : 2000);
 
       playRadio();
 
       return () => clearTimeout(checkPlaying);
     }
-  };
+  }, [isRadioPlaying, pauseRadio, playRadio]);
 
   // Listen for radio errors (check periodically)
   useEffect(() => {
@@ -100,13 +128,13 @@ export default function RadioPlayer() {
       return;
     }
 
-    // Give it a moment to connect
+    // iOS: faster feedback
     const timeout = setTimeout(() => {
       setIsLoading(false);
-    }, 1000);
+    }, isIOS ? 800 : 1000);
 
     return () => clearTimeout(timeout);
-  }, [isRadioPlaying]);
+  }, [isRadioPlaying, connectionAttempt]);
 
   return (
     <div className="radio-player">
@@ -119,6 +147,7 @@ export default function RadioPlayer() {
                   src={radioMetadata.artUrl}
                   alt="Album Art"
                   className="album-art-image"
+                  loading="lazy"
                 />
               ) : (
                 <img
@@ -178,6 +207,7 @@ export default function RadioPlayer() {
             className={`play-btn ${isRadioPlaying ? 'playing' : ''}`}
             onClick={togglePlay}
             disabled={isLoading}
+            aria-label={isRadioPlaying ? 'Pause' : 'Play'}
           >
             {isLoading ? (
               <span className="spinner"></span>
@@ -204,6 +234,7 @@ export default function RadioPlayer() {
               value={volume}
               onChange={(e) => setVolume(parseFloat(e.target.value))}
               className="volume-slider"
+              aria-label="Volume"
             />
             <span className="volume-value">{Math.round(volume * 100)}%</span>
           </div>
