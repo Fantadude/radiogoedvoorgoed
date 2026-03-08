@@ -34,7 +34,43 @@ jobs:
 
     - name: Build web app
       working-directory: ./web
-      run: npm run build
+      run: npm install
+
+    - name: Ensure iOS icons are fresh
+      working-directory: ./web
+      run: |
+        echo "=== Ensuring fresh iOS icons from radio_logo.png ==="
+        
+        # Clean any cached icon assets to prevent stale icons
+        if [ -d "ios/App/App/Assets.xcassets/AppIcon.appiconset" ]; then
+          echo "Removing old app icons to ensure fresh copy..."
+          rm -rf ios/App/App/Assets.xcassets/AppIcon.appiconset/*.png
+        fi
+        
+        # Regenerate icons from radio_logo.png
+        echo "Regenerating iOS icons from radio_logo.png..."
+        node generate-ios-icons.cjs
+        
+        # Verify icons were created
+        echo "=== Verifying iOS icons ==="
+        ls -la ios/App/App/Assets.xcassets/AppIcon.appiconset/
+
+    - name: Clean iOS build cache
+      working-directory: ./web
+      run: |
+        echo "=== Cleaning iOS build caches ==="
+        # Remove DerivedData to prevent any caching issues
+        rm -rf ~/Library/Developer/Xcode/DerivedData/* 2>/dev/null || true
+        
+        # Clean ios build directory if it exists
+        if [ -d "ios/build" ]; then
+          rm -rf ios/build
+        fi
+        
+        # Remove any existing xcuserdata (user-specific settings/cache)
+        find ios -name "xcuserdata" -type d -exec rm -rf {} + 2>/dev/null || true
+        
+        echo "Cache cleaned"
 
     - name: Initialize Capacitor iOS
       working-directory: ./web
@@ -48,12 +84,16 @@ jobs:
           echo "iOS platform already exists with Podfile"
         fi
         
-        # Sync the web build with iOS
+        # Sync the web build with iOS (this copies web assets)
         npx cap sync ios
         
+        # Re-ensure icons are in place (sync might overwrite)
+        echo "=== Re-checking icons after sync ==="
+        node generate-ios-icons.cjs || true
+        
         # List what was created for debugging
-        echo "=== iOS directory contents ==="
-        ls -la ios/
+        echo "=== iOS/App/App/Assets.xcassets/AppIcon.appiconset contents ==="
+        ls -la ios/App/App/Assets.xcassets/AppIcon.appiconset/ || echo "Warning: Icon directory not found!"
         echo "=== iOS/App directory contents ==="
         ls -la ios/App/
 
@@ -65,6 +105,10 @@ jobs:
           echo "Installing CocoaPods..."
           gem install cocoapods
         fi
+        
+        # Clean pod cache to prevent stale dependencies
+        echo "Cleaning pod cache..."
+        pod cache clean --all || true
         
         # Install pods
         echo "Running pod install..."
@@ -100,7 +144,18 @@ jobs:
           exit 1
         fi
         
+        # Clean build before building
+        echo "Cleaning previous build..."
+        xcodebuild \
+          $PROJECT_ARG \
+          -scheme App \
+          -configuration Release \
+          clean \
+          CODE_SIGNING_ALLOWED=NO \
+          CODE_SIGNING_REQUIRED=NO
+        
         # Build the iOS app without code signing
+        echo "Building iOS app..."
         xcodebuild \
           $PROJECT_ARG \
           -scheme App \
@@ -127,6 +182,12 @@ jobs:
         
         if [ -n "$APP_PATH" ]; then
           echo "Found app bundle at: $APP_PATH"
+          
+          # Verify the app has the correct icon
+          echo "=== Checking app icon in bundle ==="
+          ls -la "$APP_PATH/" | grep -i icon || echo "No obvious icon files found at root"
+          ls -la "$APP_PATH/AppIcon*" 2>/dev/null || echo "No AppIcon files found"
+          
           cp -R "$APP_PATH" ./build/Payload/
           
           # Create the IPA
@@ -179,30 +240,33 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: ./artifacts/RadioGoedvoorGoed-unsigned.ipa
-        tag_name: ios-v${{ steps.get_version.outputs.VERSION }}
-        name: iOS Release v${{ steps.get_version.outputs.VERSION }}
+        tag_name: ios-v${{ steps.get_version.outputs.VERSION }}-${{ github.run_number }}
+        name: iOS Release v${{ steps.get_version.outputs.VERSION }} (Build ${{ github.run_number }})
         body: |
           ## iOS Unsigned IPA Release
           
           **Version:** ${{ steps.get_version.outputs.VERSION }}
+          **Build:** ${{ github.run_number }}
+          **Commit:** ${{ github.sha }}
           
           **⚠️ Important:** This is an **UNSIGNED** IPA file. 
           
           It requires sideloading to install on your iOS device. See [IOS_INSTALL.md](./IOS_INSTALL.md) for installation instructions.
           
-          **Features:**
-          - Radio streaming (128kbps MP3)
-          - Now playing with listeners count
-          - Recently played track history
-          - Song requests
-          - Podcasts playback
-          - Background audio playback
-          - Lock screen media controls
+          **What's New:**
+          - iOS-optimized radio streaming
+          - Dark/Light mode support
+          - Improved navigation buttons
+          - Horizontal scrollable alphabet in requests
+          - Android-style request details flow
+          - Battery optimizations with background playback
           
           **Installation Methods:**
           1. **AltStore** (Recommended) - Free, no jailbreak required
           2. **Sideloadly** - Alternative sideloading tool
           3. **TrollStore** (iOS 14.0 - 17.0)
+          
+          **Note:** If you see the old Capacitor icon, delete any previous version of the app from your device before installing.
           
           Download the IPA below to install on your iOS device.
         draft: false
