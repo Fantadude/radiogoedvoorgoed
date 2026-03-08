@@ -20,7 +20,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -32,14 +31,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import com.example.radiogvg.data.PodcastEpisode
 import com.example.radiogvg.service.MediaPlaybackService
-import com.example.radiogvg.ui.theme.LightBlueLight
-import com.example.radiogvg.ui.theme.LightBluePrimary
-import com.example.radiogvg.ui.theme.LightBlueSecondary
-import com.example.radiogvg.ui.theme.OffWhite
-import com.example.radiogvg.ui.theme.TextDark
-import com.example.radiogvg.ui.theme.TextLight
-import com.example.radiogvg.ui.theme.TextMedium
-import com.example.radiogvg.ui.theme.White
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.text.SimpleDateFormat
@@ -253,15 +244,17 @@ fun PodcastsScreen(
         }
     }
 
+    val colorScheme = MaterialTheme.colorScheme
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(OffWhite)
+            .background(colorScheme.background)
     ) {
         // Header
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = LightBluePrimary,
+            color = colorScheme.primary,
             shadowElevation = 4.dp
         ) {
             Row(
@@ -275,13 +268,13 @@ fun PodcastsScreen(
                     Text(
                         text = "Podcasts",
                         style = MaterialTheme.typography.headlineMedium,
-                        color = White,
+                        color = colorScheme.onPrimary,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "Kringloop Verhalen",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = White.copy(alpha = 0.8f)
+                        color = colorScheme.onPrimary.copy(alpha = 0.8f)
                     )
                 }
                 IconButton(
@@ -291,14 +284,14 @@ fun PodcastsScreen(
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
-                            color = White,
+                            color = colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Refresh",
-                            tint = White
+                            tint = colorScheme.onPrimary
                         )
                     }
                 }
@@ -310,7 +303,7 @@ fun PodcastsScreen(
             currentEpisode?.let { episode ->
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = LightBlueSecondary.copy(alpha = 0.2f),
+                    color = colorScheme.secondaryContainer,
                     shadowElevation = 2.dp
                 ) {
                     Column(
@@ -326,7 +319,7 @@ fun PodcastsScreen(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(LightBluePrimary)
+                                    .background(colorScheme.primary)
                             ) {
                                 episode.coverImage?.let { url ->
                                     AsyncImage(
@@ -347,12 +340,12 @@ fun PodcastsScreen(
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    color = TextDark
+                                    color = colorScheme.onSurface
                                 )
                                 Text(
                                     text = formatTime(currentPosition) + " / " + formatTime(duration),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = TextMedium
+                                    color = colorScheme.onSurfaceVariant
                                 )
                             }
 
@@ -365,7 +358,7 @@ fun PodcastsScreen(
                                     imageVector = if (isPlaying && isServicePlayingPodcast) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (isPlaying && isServicePlayingPodcast) "Pause" else "Play",
                                     modifier = Modifier.size(32.dp),
-                                    tint = LightBluePrimary
+                                    tint = colorScheme.primary
                                 )
                             }
                         }
@@ -378,9 +371,9 @@ fun PodcastsScreen(
                             onValueChange = { seekTo(it) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
-                                thumbColor = LightBluePrimary,
-                                activeTrackColor = LightBluePrimary,
-                                inactiveTrackColor = LightBlueLight
+                                thumbColor = colorScheme.primary,
+                                activeTrackColor = colorScheme.primary,
+                                inactiveTrackColor = colorScheme.primaryContainer
                             )
                         )
                     }
@@ -392,12 +385,12 @@ fun PodcastsScreen(
         errorMessage?.let { error ->
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFFFEBEE)
+                color = colorScheme.errorContainer
             ) {
                 Text(
                     text = error,
                     modifier = Modifier.padding(16.dp),
-                    color = Color(0xFFE57373)
+                    color = colorScheme.onErrorContainer
                 )
             }
         }
@@ -408,7 +401,7 @@ fun PodcastsScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = LightBluePrimary)
+                CircularProgressIndicator(color = colorScheme.primary)
             }
         } else if (episodes.isEmpty()) {
             Box(
@@ -417,7 +410,7 @@ fun PodcastsScreen(
             ) {
                 Text(
                     text = "No episodes found",
-                    color = TextLight
+                    color = colorScheme.onSurfaceVariant
                 )
             }
         } else {
@@ -447,6 +440,7 @@ fun EpisodeCard(
     isPlaying: Boolean,
     onPlayClick: () -> Unit
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -470,14 +464,14 @@ fun EpisodeCard(
             } ?: Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(LightBluePrimary),
+                    .background(colorScheme.primary),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = White
+                    tint = colorScheme.onPrimary
                 )
             }
 
@@ -486,14 +480,14 @@ fun EpisodeCard(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(LightBluePrimary.copy(alpha = 0.7f)),
+                        .background(colorScheme.primary.copy(alpha = 0.7f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Pause,
                         contentDescription = "Playing",
                         modifier = Modifier.size(24.dp),
-                        tint = White
+                        tint = colorScheme.onPrimary
                     )
                 }
             }
@@ -509,7 +503,7 @@ fun EpisodeCard(
                 text = episode.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
-                color = TextDark,
+                color = colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -517,7 +511,7 @@ fun EpisodeCard(
             Text(
                 text = episode.description,
                 style = MaterialTheme.typography.bodySmall,
-                color = TextMedium,
+                color = colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -529,13 +523,13 @@ fun EpisodeCard(
                 Text(
                     text = formatDate(episode.publishDate),
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextLight
+                    color = colorScheme.onSurfaceVariant
                 )
                 if (episode.duration.isNotBlank()) {
                     Text(
                         text = episode.duration,
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextLight
+                        color = colorScheme.onSurfaceVariant
                     )
                 }
             }

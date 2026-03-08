@@ -19,21 +19,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.radiogvg.data.Song
 import com.example.radiogvg.data.SongRequest
 import com.example.radiogvg.network.RadioApiClient
-import com.example.radiogvg.ui.theme.LightBlueLight
-import com.example.radiogvg.ui.theme.LightBluePrimary
-import com.example.radiogvg.ui.theme.LightBlueSecondary
-import com.example.radiogvg.ui.theme.OffWhite
-import com.example.radiogvg.ui.theme.TextDark
-import com.example.radiogvg.ui.theme.TextLight
-import com.example.radiogvg.ui.theme.TextMedium
-import com.example.radiogvg.ui.theme.White
 import kotlinx.coroutines.launch
 
 private val ALPHABET = listOf("#") + ('A'..'Z').map { it.toString() }
@@ -128,15 +119,17 @@ fun RequestsScreen() {
         }
     }
 
+    val colorScheme = MaterialTheme.colorScheme
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(OffWhite)
+            .background(colorScheme.background)
     ) {
         // Compact Header
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = LightBluePrimary,
+            color = colorScheme.primary,
             shadowElevation = 4.dp
         ) {
             Column(
@@ -145,13 +138,13 @@ fun RequestsScreen() {
                 Text(
                     text = "Song Requests",
                     style = MaterialTheme.typography.titleLarge,
-                    color = White,
+                    color = colorScheme.onPrimary,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = "Browse or search songs",
                     style = MaterialTheme.typography.bodySmall,
-                    color = White.copy(alpha = 0.8f)
+                    color = colorScheme.onPrimary.copy(alpha = 0.8f)
                 )
             }
         }
@@ -159,7 +152,7 @@ fun RequestsScreen() {
         // Search Bar - Compact
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = White
+            color = colorScheme.surface
         ) {
             Row(
                 modifier = Modifier
@@ -189,7 +182,7 @@ fun RequestsScreen() {
         if (!isSearchMode) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = White
+                color = colorScheme.surface
             ) {
                 Row(
                     modifier = Modifier
@@ -204,8 +197,8 @@ fun RequestsScreen() {
                                 .size(28.dp)
                                 .clip(CircleShape)
                                 .background(
-                                    if (selectedLetter == letter) LightBluePrimary
-                                    else LightBlueLight
+                                    if (selectedLetter == letter) colorScheme.primary
+                                    else colorScheme.primaryContainer
                                 )
                                 .clickable { selectedLetter = letter },
                             contentAlignment = Alignment.Center
@@ -213,7 +206,7 @@ fun RequestsScreen() {
                             Text(
                                 text = letter,
                                 fontSize = 12.sp,
-                                color = if (selectedLetter == letter) White else LightBluePrimary,
+                                color = if (selectedLetter == letter) colorScheme.onPrimary else colorScheme.onPrimaryContainer,
                                 fontWeight = if (selectedLetter == letter) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -226,12 +219,12 @@ fun RequestsScreen() {
         if (errorMessage != null) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFFFEBEE)
+                color = colorScheme.errorContainer
             ) {
                 Text(
                     text = errorMessage!!,
                     modifier = Modifier.padding(12.dp),
-                    color = Color(0xFFE57373),
+                    color = colorScheme.onErrorContainer,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
@@ -240,7 +233,7 @@ fun RequestsScreen() {
         if (successMessage != null) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                color = Color(0xFFE8F5E9)
+                color = colorScheme.tertiaryContainer
             ) {
                 Row(
                     modifier = Modifier.padding(12.dp),
@@ -249,13 +242,13 @@ fun RequestsScreen() {
                     Icon(
                         imageVector = Icons.Default.Check,
                         contentDescription = null,
-                        tint = Color(0xFF4CAF50),
+                        tint = colorScheme.onTertiaryContainer,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = successMessage!!,
-                        color = Color(0xFF2E7D32),
+                        color = colorScheme.onTertiaryContainer,
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -270,7 +263,7 @@ fun RequestsScreen() {
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(color = LightBluePrimary, modifier = Modifier.size(36.dp))
+                    CircularProgressIndicator(color = colorScheme.primary, modifier = Modifier.size(36.dp))
                 }
             } else if (songs.isEmpty()) {
                 Box(
@@ -282,7 +275,7 @@ fun RequestsScreen() {
                             "No songs found"
                         else
                             "No songs for $selectedLetter",
-                        color = TextLight,
+                        color = colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -318,12 +311,13 @@ fun RequestsScreen() {
 
 @Composable
 fun CompactSongCard(song: Song, onClick: () -> Unit) {
+    val colorScheme = MaterialTheme.colorScheme
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = White),
+        colors = CardDefaults.cardColors(containerColor = colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
@@ -338,20 +332,20 @@ fun CompactSongCard(song: Song, onClick: () -> Unit) {
                     text = song.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
-                    color = TextDark,
+                    color = colorScheme.onSurface,
                     maxLines = 1
                 )
                 Text(
                     text = song.artist,
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextMedium,
+                    color = colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
             }
             Text(
                 text = formatDuration(song.duration),
                 style = MaterialTheme.typography.bodySmall,
-                color = TextLight
+                color = colorScheme.onSurfaceVariant
             )
         }
     }
@@ -369,6 +363,7 @@ fun CompactRequestForm(
     onSubmit: () -> Unit,
     isSubmitting: Boolean
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -379,7 +374,7 @@ fun CompactRequestForm(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = LightBluePrimary.copy(alpha = 0.1f))
+            colors = CardDefaults.cardColors(containerColor = colorScheme.primaryContainer)
         ) {
             Column(
                 modifier = Modifier.padding(12.dp)
@@ -387,7 +382,7 @@ fun CompactRequestForm(
                 Text(
                     text = "Selected",
                     style = MaterialTheme.typography.labelSmall,
-                    color = LightBluePrimary,
+                    color = colorScheme.onPrimaryContainer,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
@@ -395,20 +390,20 @@ fun CompactRequestForm(
                     text = song.title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
-                    color = TextDark,
+                    color = colorScheme.onSurface,
                     maxLines = 1
                 )
                 Text(
                     text = song.artist,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = TextMedium
+                    color = colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 TextButton(
                     onClick = onBack,
                     modifier = Modifier.height(32.dp)
                 ) {
-                    Text("Change", color = LightBluePrimary, fontSize = 12.sp)
+                    Text("Change", color = colorScheme.primary, fontSize = 12.sp)
                 }
             }
         }
@@ -419,7 +414,7 @@ fun CompactRequestForm(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = White)
+            colors = CardDefaults.cardColors(containerColor = colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier.padding(12.dp)
@@ -428,7 +423,7 @@ fun CompactRequestForm(
                     text = "Request Details",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = TextDark
+                    color = colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -459,12 +454,12 @@ fun CompactRequestForm(
                     onClick = onSubmit,
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !isSubmitting,
-                    colors = ButtonDefaults.buttonColors(containerColor = LightBluePrimary)
+                    colors = ButtonDefaults.buttonColors(containerColor = colorScheme.primary)
                 ) {
                     if (isSubmitting) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
-                            color = White,
+                            color = colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {

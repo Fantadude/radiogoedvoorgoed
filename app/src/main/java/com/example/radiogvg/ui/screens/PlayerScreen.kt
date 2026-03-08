@@ -44,12 +44,6 @@ import com.example.radiogvg.R
 import com.example.radiogvg.data.CentovaNowPlaying
 import com.example.radiogvg.network.RadioApiClient
 import com.example.radiogvg.service.MediaPlaybackService
-import com.example.radiogvg.ui.theme.LightBlueLight
-import com.example.radiogvg.ui.theme.LightBluePrimary
-import com.example.radiogvg.ui.theme.OffWhite
-import com.example.radiogvg.ui.theme.TextDark
-import com.example.radiogvg.ui.theme.TextMedium
-import com.example.radiogvg.ui.theme.White
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -336,13 +330,14 @@ fun PlayerScreen() {
 private fun BatteryOptimizationDialog(
     onDismiss: (Boolean) -> Unit
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     AlertDialog(
         onDismissRequest = { onDismiss(false) },
         icon = {
             Icon(
                 imageVector = Icons.Default.PlayArrow,
                 contentDescription = null,
-                tint = LightBluePrimary,
+                tint = colorScheme.primary,
                 modifier = Modifier.size(48.dp)
             )
         },
@@ -366,13 +361,13 @@ private fun BatteryOptimizationDialog(
                 Text(
                     text = "Without this setting, the system may stop the radio after a while to save battery.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextMedium,
+                    color = colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
                 Text(
                     text = "You can change this anytime in your device settings.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = TextMedium,
+                    color = colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
             }
@@ -381,7 +376,7 @@ private fun BatteryOptimizationDialog(
             Button(
                 onClick = { onDismiss(true) },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = LightBluePrimary
+                    containerColor = colorScheme.primary
                 )
             ) {
                 Text("Enable Unrestricted")
@@ -393,11 +388,11 @@ private fun BatteryOptimizationDialog(
             ) {
                 Text(
                     "Skip",
-                    color = TextMedium
+                    color = colorScheme.onSurfaceVariant
                 )
             }
         },
-        containerColor = White,
+        containerColor = colorScheme.surface,
         shape = RoundedCornerShape(16.dp)
     )
 }
@@ -416,10 +411,12 @@ private fun PortraitPlayerLayout(
     onVolumeChange: (Float) -> Unit,
     isServicePlayingRadio: Boolean
 ) {
+    val colorScheme = MaterialTheme.colorScheme
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(OffWhite)
+            .background(colorScheme.background)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
@@ -443,7 +440,7 @@ private fun PortraitPlayerLayout(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp),
-            colors = CardDefaults.cardColors(containerColor = White)
+            colors = CardDefaults.cardColors(containerColor = colorScheme.surface)
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -453,7 +450,7 @@ private fun PortraitPlayerLayout(
                     text = title.ifBlank { "Radio GvG" },
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = TextDark,
+                    color = colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                     maxLines = 1
                 )
@@ -461,7 +458,7 @@ private fun PortraitPlayerLayout(
                     Text(
                         text = artist,
                         style = MaterialTheme.typography.bodySmall,
-                        color = TextMedium,
+                        color = colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         maxLines = 1
                     )
@@ -475,13 +472,13 @@ private fun PortraitPlayerLayout(
                             isLoading -> {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(10.dp),
-                                    color = LightBluePrimary,
+                                    color = colorScheme.primary,
                                     strokeWidth = 1.5.dp
                                 )
                                 Text(
                                     text = "Connecting...",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = TextMedium
+                                    color = colorScheme.onSurfaceVariant
                                 )
                             }
                             isPlaying -> {
@@ -493,7 +490,7 @@ private fun PortraitPlayerLayout(
                                 Text(
                                     text = "Live • ${np.listeners} listeners",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = TextMedium
+                                    color = colorScheme.onSurfaceVariant
                                 )
                             }
                             else -> {
@@ -514,25 +511,23 @@ private fun PortraitPlayerLayout(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(6.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE5E5))
+                colors = CardDefaults.cardColors(containerColor = colorScheme.errorContainer)
             ) {
                 Text(
                     text = error,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFFD32F2F),
+                    color = colorScheme.onErrorContainer,
                     textAlign = TextAlign.Center,
                     maxLines = 1
                 )
             }
         }
 
-        // Recently Played Section - positioned above the play button
-        // History comes as [1.) oldest, ..., 20.) current]
-        // We want: reverse to [20.) current, 19., 18., ...], skip current (index 0), take 19, 18, 17
+        // Recently Played Section
         val history = nowPlaying?.history
-            ?.asReversed()  // Reverse: [20.) current, 19., 18., 17., ...]
-            ?.drop(1)       // Skip current song at index 0
+            ?.asReversed()
+            ?.drop(1)
             ?.filter { it.isNotBlank() && !it.contains("RadioGoedvoorGoed") }
             ?.take(3)
             ?: emptyList()
@@ -542,7 +537,7 @@ private fun PortraitPlayerLayout(
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = LightBlueLight)
+                colors = CardDefaults.cardColors(containerColor = colorScheme.primaryContainer)
             ) {
                 Column(
                     modifier = Modifier
@@ -554,7 +549,7 @@ private fun PortraitPlayerLayout(
                         text = "Recently Played",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Medium,
-                        color = TextMedium,
+                        color = colorScheme.onPrimaryContainer,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
                     Column(
@@ -566,7 +561,7 @@ private fun PortraitPlayerLayout(
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(8.dp),
-                                colors = CardDefaults.cardColors(containerColor = White)
+                                colors = CardDefaults.cardColors(containerColor = colorScheme.surface)
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -578,14 +573,14 @@ private fun PortraitPlayerLayout(
                                     Box(
                                         modifier = Modifier
                                             .size(24.dp)
-                                            .background(LightBluePrimary, CircleShape),
+                                            .background(colorScheme.primary, CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = "${index + 1}",
                                             style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
-                                            color = White
+                                            color = colorScheme.onPrimary
                                         )
                                     }
                                     Column(
@@ -595,14 +590,14 @@ private fun PortraitPlayerLayout(
                                             text = songTitle,
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = TextDark,
+                                            color = colorScheme.onSurface,
                                             maxLines = 1
                                         )
                                         if (songArtist.isNotBlank()) {
                                             Text(
                                                 text = songArtist,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = TextMedium,
+                                                color = colorScheme.onSurfaceVariant,
                                                 maxLines = 1
                                             )
                                         }
@@ -647,10 +642,11 @@ private fun LandscapePlayerLayout(
     onVolumeChange: (Float) -> Unit,
     isServicePlayingRadio: Boolean
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(OffWhite)
+            .background(colorScheme.background)
             .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -683,7 +679,7 @@ private fun LandscapePlayerLayout(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = White)
+                colors = CardDefaults.cardColors(containerColor = colorScheme.surface)
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -693,7 +689,7 @@ private fun LandscapePlayerLayout(
                         text = title,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
-                        color = TextDark,
+                        color = colorScheme.onSurface,
                         textAlign = TextAlign.Center,
                         maxLines = 1
                     )
@@ -701,7 +697,7 @@ private fun LandscapePlayerLayout(
                         Text(
                             text = artist,
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextMedium,
+                            color = colorScheme.onSurfaceVariant,
                             maxLines = 1
                         )
                     }
@@ -713,13 +709,13 @@ private fun LandscapePlayerLayout(
                             isLoading -> {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(12.dp),
-                                    color = LightBluePrimary,
+                                    color = colorScheme.primary,
                                     strokeWidth = 2.dp
                                 )
                                 Text(
                                     text = "Connecting...",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = TextMedium
+                                    color = colorScheme.onSurfaceVariant
                                 )
                             }
                             isPlaying -> {
@@ -731,7 +727,7 @@ private fun LandscapePlayerLayout(
                                 Text(
                                     text = "Live • ${nowPlaying?.listeners ?: 0} listeners",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = TextMedium
+                                    color = colorScheme.onSurfaceVariant
                                 )
                             }
                             else -> {
@@ -751,13 +747,13 @@ private fun LandscapePlayerLayout(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(6.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE5E5))
+                    colors = CardDefaults.cardColors(containerColor = colorScheme.errorContainer)
                 ) {
                     Text(
                         text = error,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFD32F2F),
+                        color = colorScheme.onErrorContainer,
                         textAlign = TextAlign.Center,
                         maxLines = 1
                     )
@@ -791,6 +787,7 @@ private fun PlayPauseButton(
     onTogglePlayback: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     val scale by animateFloatAsState(
         targetValue = if (isPlaying) 1.0f else 0.95f,
         animationSpec = tween(200),
@@ -805,14 +802,14 @@ private fun PlayPauseButton(
             .scale(scale),
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
-            containerColor = LightBluePrimary,
-            disabledContainerColor = LightBlueLight
+            containerColor = colorScheme.primary,
+            disabledContainerColor = colorScheme.primaryContainer
         )
     ) {
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(32.dp),
-                color = White,
+                color = colorScheme.onPrimary,
                 strokeWidth = 3.dp
             )
         } else {
@@ -824,7 +821,7 @@ private fun PlayPauseButton(
                 },
                 contentDescription = if (isPlaying && isServicePlayingRadio) "Pause" else "Play",
                 modifier = Modifier.size(40.dp),
-                tint = White
+                tint = colorScheme.onPrimary
             )
         }
     }
@@ -836,6 +833,7 @@ private fun VolumeControl(
     onVolumeChange: (Float) -> Unit,
     compact: Boolean = false
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -844,7 +842,7 @@ private fun VolumeControl(
         Icon(
             imageVector = if (volume > 0) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeMute,
             contentDescription = "Volume",
-            tint = TextMedium,
+            tint = colorScheme.onSurfaceVariant,
             modifier = Modifier.size(if (compact) 20.dp else 24.dp)
         )
 
@@ -853,9 +851,9 @@ private fun VolumeControl(
             onValueChange = onVolumeChange,
             modifier = Modifier.weight(1f),
             colors = SliderDefaults.colors(
-                thumbColor = LightBluePrimary,
-                activeTrackColor = LightBluePrimary,
-                inactiveTrackColor = LightBlueLight
+                thumbColor = colorScheme.primary,
+                activeTrackColor = colorScheme.primary,
+                inactiveTrackColor = colorScheme.primaryContainer
             )
         )
 
@@ -863,7 +861,7 @@ private fun VolumeControl(
             text = "${(volume * 100).toInt()}%",
             style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
-            color = TextDark,
+            color = colorScheme.onSurface,
             modifier = Modifier.width(if (compact) 32.dp else 36.dp)
         )
     }
@@ -876,6 +874,7 @@ private fun AlbumArtWithLogo(
     fallbackLogo: androidx.compose.ui.graphics.painter.Painter,
     maxHeightFraction: Float
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     val infiniteTransition = rememberInfiniteTransition(label = "animation")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -909,7 +908,7 @@ private fun AlbumArtWithLogo(
                     .aspectRatio(1f)
                     .scale(if (isPlaying) scale else 1f)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(LightBlueLight),
+                    .background(colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
                 if (isPlaying) {
@@ -936,7 +935,7 @@ private fun AlbumArtWithLogo(
                                     .width(8.dp)
                                     .heightIn(max = 60.dp)
                                     .fillMaxHeight(barScale)
-                                    .background(White, RoundedCornerShape(4.dp))
+                                    .background(colorScheme.onPrimaryContainer, RoundedCornerShape(4.dp))
                             )
                         }
                     }
@@ -946,7 +945,7 @@ private fun AlbumArtWithLogo(
                         imageVector = Icons.Filled.PlayArrow,
                         contentDescription = "radiogoedvoorgoed",
                         modifier = Modifier.size(64.dp),
-                        tint = LightBluePrimary
+                        tint = colorScheme.primary
                     )
                 }
             }

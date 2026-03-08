@@ -95,6 +95,12 @@ class MediaPlaybackService : Service() {
 
     private var progressUpdateJob: Job? = null
 
+    // Radio retry management for battery optimization
+    private var radioRetryCount = 0
+    private var radioRetryJob: Job? = null
+    private val MAX_RADIO_RETRIES = 5
+    private val BASE_RETRY_DELAY_MS = 2000L // 2 seconds base delay
+
     // Wake locks to prevent CPU and Wi-Fi from sleeping during playback
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -356,6 +362,11 @@ class MediaPlaybackService : Service() {
     }
 
     fun playRadio() {
+        // Reset retry counter on manual play
+        radioRetryCount = 0
+        radioRetryJob?.cancel()
+        radioRetryJob = null
+
         // Stop any existing podcast playback
         stopPlaybackInternal()
 
@@ -397,6 +408,10 @@ class MediaPlaybackService : Service() {
                 setOnPreparedListener {
                     it.start()
                     isPlayingState = true
+                    // Reset retry count on successful playback
+                    radioRetryCount = 0
+                    radioRetryJob?.cancel()
+                    radioRetryJob = null
                     savePlaybackState()
                     CoroutineScope(Dispatchers.Main).launch {
                         updatePlaybackState()
@@ -411,21 +426,38 @@ class MediaPlaybackService : Service() {
                         updatePlaybackState()
                         playbackCallback?.onPlaybackStateChanged(false, PlaybackMode.RADIO)
                     }
-                    // Auto-retry for radio stream errors after 2 seconds
+                    // Smart retry with exponential backoff for battery optimization
                     if (playbackMode == PlaybackMode.RADIO) {
-                        CoroutineScope(Dispatchers.IO).launch {
-                            delay(2000)
-                            if (playbackMode == PlaybackMode.RADIO && !isPlayingState) {
-                                createRadioMediaPlayer()
+                        radioRetryJob?.cancel()
+                        if (radioRetryCount < MAX_RADIO_RETRIES) {
+                            radioRetryCount++
+                            // Exponential backoff: 2s, 4s, 8s, 16s, 32s
+                            val delayMs = BASE_RETRY_DELAY_MS * (1 shl (radioRetryCount - 1))
+                            radioRetryJob = CoroutineScope(Dispatchers.IO).launch {
+                                delay(delayMs)
+                                if (playbackMode == PlaybackMode.RADIO && !isPlayingState) {
+                                    createRadioMediaPlayer()
+                                }
                             }
                         }
+                        // After MAX_RETRIES, stop trying to save battery - user can retry manually
                     }
                     true
                 }
                 setOnCompletionListener {
-                    // For live stream, restart if it stops unexpectedly
+                    // For live stream, restart if it stops unexpectedly (with retry limit)
                     if (playbackMode == PlaybackMode.RADIO) {
-                        createRadioMediaPlayer()
+                        radioRetryJob?.cancel()
+                        if (radioRetryCount < MAX_RADIO_RETRIES) {
+                            radioRetryCount++
+                            val delayMs = BASE_RETRY_DELAY_MS * (1 shl (radioRetryCount - 1))
+                            radioRetryJob = CoroutineScope(Dispatchers.IO).launch {
+                                delay(delayMs)
+                                if (playbackMode == PlaybackMode.RADIO && !isPlayingState) {
+                                    createRadioMediaPlayer()
+                                }
+                            }
+                        }
                     }
                 }
                 prepare()
