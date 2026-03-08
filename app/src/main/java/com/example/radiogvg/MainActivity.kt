@@ -144,7 +144,9 @@ private fun TopNavigationBar(
     onItemSelected: (Int) -> Unit
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding(),
         color = MaterialTheme.colorScheme.background,
         shadowElevation = 0.dp
     ) {
