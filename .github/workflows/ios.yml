@@ -34,26 +34,7 @@ jobs:
 
     - name: Build web app
       working-directory: ./web
-      run: npm install
-
-    - name: Ensure iOS icons are fresh
-      working-directory: ./web
-      run: |
-        echo "=== Ensuring fresh iOS icons from radio_logo.png ==="
-        
-        # Clean any cached icon assets to prevent stale icons
-        if [ -d "ios/App/App/Assets.xcassets/AppIcon.appiconset" ]; then
-          echo "Removing old app icons to ensure fresh copy..."
-          rm -rf ios/App/App/Assets.xcassets/AppIcon.appiconset/*.png
-        fi
-        
-        # Regenerate icons from radio_logo.png
-        echo "Regenerating iOS icons from radio_logo.png..."
-        node generate-ios-icons.cjs
-        
-        # Verify icons were created
-        echo "=== Verifying iOS icons ==="
-        ls -la ios/App/App/Assets.xcassets/AppIcon.appiconset/
+      run: npm run build
 
     - name: Clean iOS build cache
       working-directory: ./web
@@ -75,27 +56,52 @@ jobs:
     - name: Initialize Capacitor iOS
       working-directory: ./web
       run: |
-        # Check if we have a proper iOS platform (Podfile is required)
-        if [ ! -f "ios/App/Podfile" ]; then
-          echo "Podfile missing - removing incomplete ios directory and re-adding iOS platform..."
+        # Check if we have a proper iOS platform (both Podfile AND .xcodeproj are required)
+        if [ ! -f "ios/App/Podfile" ] || [ ! -d "ios/App/App.xcodeproj" ]; then
+          echo "iOS platform incomplete (missing Podfile or .xcodeproj) - removing and re-adding..."
           rm -rf ios
+          echo "Adding iOS platform with Capacitor..."
           npx cap add ios
         else
-          echo "iOS platform already exists with Podfile"
+          echo "iOS platform exists with both Podfile and .xcodeproj"
         fi
-        
-        # Sync the web build with iOS (this copies web assets)
+
+    - name: Sync web assets to iOS
+      working-directory: ./web
+      run: |
+        # Sync the web build with iOS (this copies web assets from dist/)
         npx cap sync ios
         
-        # Re-ensure icons are in place (sync might overwrite)
-        echo "=== Re-checking icons after sync ==="
-        node generate-ios-icons.cjs || true
+        echo "=== iOS/App/App/public contents after sync ==="
+        ls -la ios/App/App/public/ | head -20
+
+    - name: Apply custom iOS icons
+      working-directory: ./web
+      run: |
+        echo "=== Applying custom iOS icons from radio_logo.png ==="
         
-        # List what was created for debugging
-        echo "=== iOS/App/App/Assets.xcassets/AppIcon.appiconset contents ==="
-        ls -la ios/App/App/Assets.xcassets/AppIcon.appiconset/ || echo "Warning: Icon directory not found!"
-        echo "=== iOS/App directory contents ==="
-        ls -la ios/App/
+        # Clean any existing icon assets first
+        if [ -d "ios/App/App/Assets.xcassets/AppIcon.appiconset" ]; then
+          echo "Removing old app icons..."
+          rm -rf ios/App/App/Assets.xcassets/AppIcon.appiconset/*.png
+        fi
+        
+        # Regenerate icons from radio_logo.png
+        echo "Generating iOS icons from radio_logo.png..."
+        node generate-ios-icons.cjs
+        
+        # Verify icons were created
+        echo "=== Verifying iOS icons ==="
+        ls -la ios/App/App/Assets.xcassets/AppIcon.appiconset/
+        
+        # Count icons to ensure they exist
+        ICON_COUNT=$(ls ios/App/App/Assets.xcassets/AppIcon.appiconset/*.png 2>/dev/null | wc -l)
+        echo "Found $ICON_COUNT icon files"
+        
+        if [ "$ICON_COUNT" -eq 0 ]; then
+          echo "ERROR: No icon files generated!"
+          exit 1
+        fi
 
     - name: Install CocoaPods dependencies
       working-directory: ./web/ios/App
