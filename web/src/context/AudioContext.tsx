@@ -57,6 +57,18 @@ interface AudioContextType extends AudioState {
 const RADIO_STREAM_URL = 'https://ex52.voordeligstreamen.nl/8154/stream';
 const AUDIO_PLAYING_EVENT = 'audioPlaying';
 
+function buildFreshRadioStreamUrl() {
+  const separator = RADIO_STREAM_URL.includes('?') ? '&' : '?';
+  return `${RADIO_STREAM_URL}${separator}nocache=${Date.now()}`;
+}
+
+function configurePlaybackAudioSession() {
+  const nav = navigator as Navigator & { audioSession?: { type: string } };
+  if (nav.audioSession) {
+    nav.audioSession.type = 'playback';
+  }
+}
+
 // iOS detection
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -267,16 +279,21 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     // Stop any existing podcast
     stopPodcastInternal();
 
+    // Always restart live stream from a fresh URL to avoid delayed resume/cached buffer buildup
+    stopRadioInternal();
+
     // Notify other components
     window.dispatchEvent(new CustomEvent(AUDIO_PLAYING_EVENT, { detail: { source: 'radio' } }));
 
-    // Create new audio element if needed
+    // Ensure playback category grabs audio focus on iOS where supported
+    configurePlaybackAudioSession();
+
+    // Create new audio element for every live-radio play action
     if (!globalAudioState.radioAudio) {
       const audio = new Audio();
-      audio.src = RADIO_STREAM_URL;
+      audio.src = buildFreshRadioStreamUrl();
       audio.volume = globalAudioState.volume;
-      // iOS: use metadata preload for faster start, none for others
-      audio.preload = isIOS ? 'metadata' : 'none';
+      audio.preload = 'none';
 
       // @ts-ignore
       if ('audioSession' in audio) {
@@ -405,6 +422,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const playPodcast = useCallback((episode: { id: string; title: string; audioUrl: string; coverImage?: string }) => {
     // Stop any existing radio
     stopRadioInternal();
+
+    // Ensure playback category grabs audio focus on iOS where supported
+    configurePlaybackAudioSession();
 
     // Notify other components
     window.dispatchEvent(new CustomEvent(AUDIO_PLAYING_EVENT, { detail: { source: 'podcast' } }));

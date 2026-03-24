@@ -7,6 +7,41 @@ const RADIO_CONFIG = {
   nowPlayingUrl: 'https://ex52.voordeligstreamen.nl/cp/get_info.php?p=8154',
 };
 
+const RECENTLY_PLAYED_STORAGE_KEY = 'radio_recently_played_fallback';
+const MAX_HISTORY_ITEMS = 3;
+
+type HistoryEntry = string | { title?: string; artist?: string; song?: string; track?: string; text?: string };
+
+function normalizeHistoryItems(rawHistory: HistoryEntry[]): string[] {
+  return rawHistory
+    .map((item) => {
+      if (typeof item === 'string') return item;
+      return item.song || item.track || item.title || item.text || '';
+    })
+    .map((item) => item.replace(/^\d+\.\)\s*/, '').trim())
+    .filter((item) => item.length > 0 && !item.includes('RadioGoedvoorGoed'))
+    .slice(0, MAX_HISTORY_ITEMS);
+}
+
+function readStoredHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENTLY_PLAYED_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, MAX_HISTORY_ITEMS) : [];
+  } catch {
+    return [];
+  }
+}
+
+function storeHistory(items: string[]) {
+  try {
+    localStorage.setItem(RECENTLY_PLAYED_STORAGE_KEY, JSON.stringify(items.slice(0, MAX_HISTORY_ITEMS)));
+  } catch {
+    // Ignore storage failures
+  }
+}
+
 // Detect iOS
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
               (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -25,7 +60,7 @@ export default function RadioPlayer() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<string[]>(() => readStoredHistory());
   const [connectionAttempt, setConnectionAttempt] = useState(0);
 
   const isRadioPlaying = isPlaying && mode === 'radio';
@@ -40,41 +75,54 @@ export default function RadioPlayer() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), isIOS ? 5000 : 10000);
         
-        const response = await fetch(RADIO_CONFIG.nowPlayingUrl, {
+        const response = await fetch(`${RADIO_CONFIG.nowPlayingUrl}&ts=${Date.now()}`, {
           signal: controller.signal,
-          cache: 'no-cache',
+          cache: 'no-store',
+          headers: {
+            Pragma: 'no-cache',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+          },
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         if (!isMounted) return;
-        
+
         if (response.ok) {
           const data = await response.json();
-          // Centova JSON format
+
           if (data.title) {
             setRadioMetadata({
               title: data.title,
               artist: data.artist || '',
               artUrl: data.art || null,
-              listeners: data.listeners || 0,
+              listeners: Number(data.listeners || data.ulistener || 0),
             });
 
-            if (data.history && Array.isArray(data.history)) {
-              // History comes as [1.) oldest, ..., 20.) current]
-              // Reverse to [20.) current, 19., 18., ...], skip current (index 0), take 19, 18, 17
-              const filteredHistory = data.history
-                .slice()           // Create a copy
-                .reverse()          // Reverse: [20.) current, 19., 18., 17., ...]
-                .slice(1)           // Skip current song at index 0
-                .filter((item: string) => item && !item.includes('RadioGoedvoorGoed'))
-                .slice(0, 3);       // Take max 3
-
-              setHistory(filteredHistory);
+            // Fallback history based on observed title changes when server doesn't provide history
+            const cleanedCurrent = String(data.title).trim();
+            if (cleanedCurrent) {
+              setHistory((prev) => {
+                const next = [cleanedCurrent, ...prev.filter((item) => item !== cleanedCurrent)].slice(0, MAX_HISTORY_ITEMS);
+                storeHistory(next);
+                return next;
+              });
             }
           }
-          if (data.listeners !== undefined) {
-            setRadioMetadata({ listeners: data.listeners });
+
+          const serverHistory =
+            data.history || data.songhistory || data.recently_played || data.recentlyPlayed || data.lastplayed;
+
+          if (Array.isArray(serverHistory)) {
+            const parsed = normalizeHistoryItems(serverHistory as HistoryEntry[]);
+            if (parsed.length > 0) {
+              setHistory(parsed);
+              storeHistory(parsed);
+            }
+          }
+
+          if (data.listeners !== undefined || data.ulistener !== undefined) {
+            setRadioMetadata({ listeners: Number(data.listeners || data.ulistener || 0) });
           }
         }
       } catch (err) {
