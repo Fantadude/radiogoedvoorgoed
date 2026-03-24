@@ -248,12 +248,20 @@ class MediaPlaybackService : Service() {
         mediaSession = MediaSession(this, "RadioPlaybackSession").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
-                    // Resume current playback
-                    mediaPlayer?.start()
-                    isPlayingState = true
-                    updatePlaybackState()
-                    updateNotification()
-                    playbackCallback?.onPlaybackStateChanged(true, playbackMode)
+                    when (playbackMode) {
+                        PlaybackMode.RADIO -> {
+                            // Live radio should always reconnect to the live edge
+                            playRadio()
+                        }
+                        PlaybackMode.PODCAST -> {
+                            mediaPlayer?.start()
+                            isPlayingState = true
+                            updatePlaybackState()
+                            updateNotification()
+                            playbackCallback?.onPlaybackStateChanged(true, playbackMode)
+                        }
+                        PlaybackMode.NONE -> Unit
+                    }
                 }
 
                 override fun onPause() {
@@ -610,17 +618,24 @@ class MediaPlaybackService : Service() {
     }
 
     fun resume() {
-        if (mediaPlayer != null && playbackMode != PlaybackMode.NONE) {
-            // Re-acquire wake locks when resuming playback
-            acquireWakeLocks()
-            mediaPlayer?.start()
-            isPlayingState = true
-            if (playbackMode == PlaybackMode.PODCAST) {
-                startProgressUpdates()
+        when (playbackMode) {
+            PlaybackMode.RADIO -> {
+                // Live radio should always resume from "now", not from a paused buffer
+                playRadio()
             }
-            updatePlaybackState()
-            updateNotification()
-            playbackCallback?.onPlaybackStateChanged(true, playbackMode)
+            PlaybackMode.PODCAST -> {
+                if (mediaPlayer != null) {
+                    // Re-acquire wake locks when resuming playback
+                    acquireWakeLocks()
+                    mediaPlayer?.start()
+                    isPlayingState = true
+                    startProgressUpdates()
+                    updatePlaybackState()
+                    updateNotification()
+                    playbackCallback?.onPlaybackStateChanged(true, playbackMode)
+                }
+            }
+            PlaybackMode.NONE -> Unit
         }
     }
 
