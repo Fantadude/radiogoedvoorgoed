@@ -5,6 +5,7 @@ on:
     branches: [ main, develop ]
     paths:
       - 'app/**'
+      - 'web/**'
       - 'gradle/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
@@ -16,9 +17,12 @@ on:
     branches: [ main ]
     paths:
       - 'app/**'
+      - 'web/**'
       - 'gradle/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
 
 jobs:
   build-debug:
@@ -29,6 +33,25 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: './web/package-lock.json'
+
+    - name: Build web assets for Android
+      working-directory: ./web
+      run: |
+        npm ci
+        npm run build
+
+    - name: Copy web assets into Android app
+      run: |
+        rm -rf app/src/main/assets/*
+        mkdir -p app/src/main/assets
+        cp -r web/dist/. app/src/main/assets/
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -63,6 +86,25 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: './web/package-lock.json'
+
+    - name: Build web assets for Android
+      working-directory: ./web
+      run: |
+        npm ci
+        npm run build
+
+    - name: Copy web assets into Android app
+      run: |
+        rm -rf app/src/main/assets/*
+        mkdir -p app/src/main/assets
+        cp -r web/dist/. app/src/main/assets/
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
