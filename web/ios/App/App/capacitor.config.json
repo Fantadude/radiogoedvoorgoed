@@ -4,7 +4,6 @@
 	"webDir": "dist",
 	"server": {
 		"androidScheme": "https",
-		"iosScheme": "https",
 		"cleartext": true
 	},
 	"ios": {
@@ -12,7 +11,7 @@
 		"allowsLinkPreview": false,
 		"scrollEnabled": true,
 		"backgroundColor": "#1a1a2e",
-		"limitsNavigationsToAppBoundaries": true
+		"limitsNavigationsToAppBoundaries": false
 	},
 	"plugins": {
 		"CapacitorHttp": {
