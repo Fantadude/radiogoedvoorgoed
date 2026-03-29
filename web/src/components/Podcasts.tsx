@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { useAudio } from '../context/AudioContext';
 import './Podcasts.css';
 
@@ -19,24 +20,47 @@ interface PodcastEpisode {
 
 async function fetchWithFallback(path: string, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
+  const isNativeIOS = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
 
   for (const baseUrl of API_BASE_URLS) {
+    const url = `${baseUrl}${path}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
     try {
-      const response = await fetch(`${baseUrl}${path}`, {
-        ...init,
-        signal: controller.signal,
-      });
+      if (isNativeIOS) {
+        const nativeResponse = await CapacitorHttp.request({
+          url,
+          method: (init?.method || 'GET') as 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+          headers: init?.headers as Record<string, string> | undefined,
+          data: init?.body ? JSON.parse(String(init.body)) : undefined,
+          readTimeout: API_TIMEOUT_MS,
+          connectTimeout: API_TIMEOUT_MS,
+        });
 
-      clearTimeout(timeoutId);
+        if (nativeResponse.status >= 200 && nativeResponse.status < 300) {
+          return new Response(
+            typeof nativeResponse.data === 'string' ? nativeResponse.data : JSON.stringify(nativeResponse.data),
+            {
+              status: nativeResponse.status,
+              headers: { 'content-type': String(nativeResponse.headers?.['content-type'] || 'application/json') },
+            }
+          );
+        }
 
-      if (response.ok) {
-        return response;
+        lastError = new Error(`HTTP ${nativeResponse.status} for ${url}`);
+      } else {
+        const response = await fetch(url, {
+          ...init,
+          signal: controller.signal,
+        });
+
+        if (response.ok) {
+          return response;
+        }
+
+        lastError = new Error(`HTTP ${response.status} for ${url}`);
       }
-
-      lastError = new Error(`HTTP ${response.status} for ${baseUrl}${path}`);
     } catch (err) {
       lastError = err;
     } finally {

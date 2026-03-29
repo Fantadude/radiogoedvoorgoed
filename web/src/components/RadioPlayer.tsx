@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { useAudio } from '../context/AudioContext';
 import './RadioPlayer.css';
 
@@ -71,59 +72,84 @@ export default function RadioPlayer() {
     
     const fetchTrackInfo = async () => {
       try {
-        // Use AbortController for timeout on iOS
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), isIOS ? 5000 : 10000);
-        
-        const response = await fetch(`${RADIO_CONFIG.nowPlayingUrl}&ts=${Date.now()}`, {
-          signal: controller.signal,
-          cache: 'no-store',
-          headers: {
-            Pragma: 'no-cache',
-            'Cache-Control': 'no-cache, no-store, must-revalidate',
-          },
-        });
+        const url = `${RADIO_CONFIG.nowPlayingUrl}&ts=${Date.now()}`;
+        const isNativeIOS = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
 
-        clearTimeout(timeoutId);
+        let data: any;
+
+        if (isNativeIOS) {
+          const nativeResponse = await CapacitorHttp.get({
+            url,
+            headers: {
+              Pragma: 'no-cache',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            },
+            readTimeout: isIOS ? 5000 : 10000,
+            connectTimeout: isIOS ? 5000 : 10000,
+          });
+
+          if (nativeResponse.status < 200 || nativeResponse.status >= 300) {
+            throw new Error(`Now playing HTTP ${nativeResponse.status}`);
+          }
+
+          data = typeof nativeResponse.data === 'string' ? JSON.parse(nativeResponse.data) : nativeResponse.data;
+        } else {
+          // Use AbortController timeout for web platforms
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), isIOS ? 5000 : 10000);
+
+          const response = await fetch(url, {
+            signal: controller.signal,
+            cache: 'no-store',
+            headers: {
+              Pragma: 'no-cache',
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+            },
+          });
+
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`Now playing HTTP ${response.status}`);
+          }
+
+          data = await response.json();
+        }
 
         if (!isMounted) return;
 
-        if (response.ok) {
-          const data = await response.json();
+        if (data.title) {
+          setRadioMetadata({
+            title: data.title,
+            artist: data.artist || '',
+            artUrl: data.art || null,
+            listeners: Number(data.listeners || data.ulistener || 0),
+          });
 
-          if (data.title) {
-            setRadioMetadata({
-              title: data.title,
-              artist: data.artist || '',
-              artUrl: data.art || null,
-              listeners: Number(data.listeners || data.ulistener || 0),
+          // Fallback history based on observed title changes when server doesn't provide history
+          const cleanedCurrent = String(data.title).trim();
+          if (cleanedCurrent) {
+            setHistory((prev) => {
+              const next = [cleanedCurrent, ...prev.filter((item) => item !== cleanedCurrent)].slice(0, MAX_HISTORY_ITEMS);
+              storeHistory(next);
+              return next;
             });
-
-            // Fallback history based on observed title changes when server doesn't provide history
-            const cleanedCurrent = String(data.title).trim();
-            if (cleanedCurrent) {
-              setHistory((prev) => {
-                const next = [cleanedCurrent, ...prev.filter((item) => item !== cleanedCurrent)].slice(0, MAX_HISTORY_ITEMS);
-                storeHistory(next);
-                return next;
-              });
-            }
           }
+        }
 
-          const serverHistory =
-            data.history || data.songhistory || data.recently_played || data.recentlyPlayed || data.lastplayed;
+        const serverHistory =
+          data.history || data.songhistory || data.recently_played || data.recentlyPlayed || data.lastplayed;
 
-          if (Array.isArray(serverHistory)) {
-            const parsed = normalizeHistoryItems(serverHistory as HistoryEntry[]);
-            if (parsed.length > 0) {
-              setHistory(parsed);
-              storeHistory(parsed);
-            }
+        if (Array.isArray(serverHistory)) {
+          const parsed = normalizeHistoryItems(serverHistory as HistoryEntry[]);
+          if (parsed.length > 0) {
+            setHistory(parsed);
+            storeHistory(parsed);
           }
+        }
 
-          if (data.listeners !== undefined || data.ulistener !== undefined) {
-            setRadioMetadata({ listeners: Number(data.listeners || data.ulistener || 0) });
-          }
+        if (data.listeners !== undefined || data.ulistener !== undefined) {
+          setRadioMetadata({ listeners: Number(data.listeners || data.ulistener || 0) });
         }
       } catch (err) {
         // Silently fail - don't show error for metadata fetch failures
