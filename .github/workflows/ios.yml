@@ -56,14 +56,14 @@ jobs:
     - name: Initialize Capacitor iOS
       working-directory: ./web
       run: |
-        # Check if we have a proper iOS platform (both Podfile AND .xcodeproj are required)
-        if [ ! -f "ios/App/Podfile" ] || [ ! -d "ios/App/App.xcodeproj" ]; then
-          echo "iOS platform incomplete (missing Podfile or .xcodeproj) - removing and re-adding..."
+        # Check if we have a proper iOS platform (.xcodeproj is required; Podfile may be absent for SPM-based setups)
+        if [ ! -d "ios/App/App.xcodeproj" ]; then
+          echo "iOS platform incomplete (missing .xcodeproj) - removing and re-adding..."
           rm -rf ios
           echo "Adding iOS platform with Capacitor..."
           npx cap add ios
         else
-          echo "iOS platform exists with both Podfile and .xcodeproj"
+          echo "iOS platform exists with App.xcodeproj"
         fi
 
     - name: Sync Capacitor iOS platform
@@ -104,33 +104,33 @@ jobs:
           exit 1
         fi
 
-    - name: Install CocoaPods dependencies
+    - name: Install CocoaPods dependencies (if Podfile exists)
       working-directory: ./web/ios
       run: |
+        echo "=== CocoaPods context ==="
+        pwd
+        ls -la
+        ls -la App || true
+
+        # Some Capacitor setups use SPM only and have no Podfile.
+        if [ ! -f "App/Podfile" ]; then
+          echo "No App/Podfile found (SPM-based project). Skipping CocoaPods install."
+          exit 0
+        fi
+
         # Install CocoaPods if not present
         if ! command -v pod &> /dev/null; then
           echo "Installing CocoaPods..."
           gem install cocoapods
         fi
 
-        # Debug current location and expected Podfile location
-        echo "=== CocoaPods context ==="
-        pwd
-        ls -la
-        ls -la App || true
-
         # Clean pod cache to prevent stale dependencies
         echo "Cleaning pod cache..."
         pod cache clean --all || true
 
         # Install pods from the directory that contains Podfile
-        if [ -f "App/Podfile" ]; then
-          echo "Running pod install in App/..."
-          pod install --project-directory=App
-        else
-          echo "ERROR: App/Podfile not found"
-          exit 1
-        fi
+        echo "Running pod install in App/..."
+        pod install --project-directory=App
 
         echo "=== After pod install ==="
         ls -la App
