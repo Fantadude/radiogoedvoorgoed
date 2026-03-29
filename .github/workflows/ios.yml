@@ -105,24 +105,35 @@ jobs:
         fi
 
     - name: Install CocoaPods dependencies
-      working-directory: ./web/ios/App
+      working-directory: ./web/ios
       run: |
         # Install CocoaPods if not present
         if ! command -v pod &> /dev/null; then
           echo "Installing CocoaPods..."
           gem install cocoapods
         fi
-        
+
+        # Debug current location and expected Podfile location
+        echo "=== CocoaPods context ==="
+        pwd
+        ls -la
+        ls -la App || true
+
         # Clean pod cache to prevent stale dependencies
         echo "Cleaning pod cache..."
         pod cache clean --all || true
-        
-        # Install pods
-        echo "Running pod install..."
-        pod install
-        
+
+        # Install pods from the directory that contains Podfile
+        if [ -f "App/Podfile" ]; then
+          echo "Running pod install in App/..."
+          pod install --project-directory=App
+        else
+          echo "ERROR: App/Podfile not found"
+          exit 1
+        fi
+
         echo "=== After pod install ==="
-        ls -la ../
+        ls -la App
 
     - name: Build unsigned IPA
       working-directory: ./web/ios
