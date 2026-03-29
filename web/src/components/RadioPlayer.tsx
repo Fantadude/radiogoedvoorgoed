@@ -3,8 +3,8 @@ import { useAudio } from '../context/AudioContext';
 import './RadioPlayer.css';
 
 const RADIO_CONFIG = {
-  streamUrl: 'https://ex52.voordeligstreamen.nl/8154/stream',
-  nowPlayingUrl: 'https://ex52.voordeligstreamen.nl/cp/get_info.php?p=8154',
+  streamUrl: 'http://ex52.voordeligstreamen.nl/8154/stream',
+  nowPlayingUrl: 'http://ex52.voordeligstreamen.nl/cp/get_info.php?p=8154',
 };
 
 const RECENTLY_PLAYED_STORAGE_KEY = 'radio_recently_played_fallback';

@@ -54,7 +54,7 @@ interface AudioContextType extends AudioState {
   stopAll: () => void;
 }
 
-const RADIO_STREAM_URL = 'https://ex52.voordeligstreamen.nl/8154/stream';
+const RADIO_STREAM_URL = 'http://ex52.voordeligstreamen.nl/8154/stream';
 const AUDIO_PLAYING_EVENT = 'audioPlaying';
 
 function buildFreshRadioStreamUrl() {
