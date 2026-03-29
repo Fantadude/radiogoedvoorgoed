@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAudio } from '../context/AudioContext';
 import './Podcasts.css';
 
-const API_BASE_URL = 'http://86.84.18.58:3000'; // Your radio server API
+const API_BASE_URL = 'http://radiogvg.chickenkiller.com:3000'; // Your radio server API
 
 interface PodcastEpisode {
   id: string;

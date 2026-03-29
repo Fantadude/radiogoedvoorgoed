@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import './Requests.css';
 
-const API_BASE_URL = 'http://86.84.18.58:3000'; // Your radio server API
+const API_BASE_URL = 'http://radiogvg.chickenkiller.com:3000'; // Your radio server API
 
 interface Song {
   ID: number;
