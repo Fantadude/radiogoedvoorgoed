@@ -5,8 +5,8 @@ const config: CapacitorConfig = {
   appName: 'Radio GoedvoorGoed',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
-    iosScheme: 'https',
+    androidScheme: 'http',
+    iosScheme: 'http',
     cleartext: true,
   },
   ios: {

@@ -66,7 +66,8 @@ export default function Requests() {
       const response = await fetch(`${API_BASE_URL}/api/songs/letter/${encodeURIComponent(letter)}`);
       if (response.ok) {
         const data = await response.json();
-        setSongs(data.songs || []);
+        const songList = Array.isArray(data) ? data : (Array.isArray(data?.songs) ? data.songs : []);
+        setSongs(songList);
         setError(null);
       } else {
         throw new Error('Failed to fetch songs');
@@ -85,7 +86,8 @@ export default function Requests() {
       const response = await fetch(`${API_BASE_URL}/api/songs/search?q=${encodeURIComponent(query)}`);
       if (response.ok) {
         const data = await response.json();
-        setSongs(data.songs || []);
+        const songList = Array.isArray(data) ? data : (Array.isArray(data?.songs) ? data.songs : []);
+        setSongs(songList);
         setError(null);
       } else {
         throw new Error('Search failed');

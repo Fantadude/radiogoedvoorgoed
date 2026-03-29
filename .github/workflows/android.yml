@@ -47,6 +47,15 @@ jobs:
         npm ci
         npm run build
 
+    - name: Sync Capacitor config (Android, if present)
+      working-directory: ./web
+      run: |
+        if [ -d "android" ]; then
+          npx cap sync android
+        else
+          echo "No Capacitor Android platform in ./web, skipping cap sync android"
+        fi
+
     - name: Copy web assets into Android app
       run: |
         rm -rf app/src/main/assets/*
@@ -59,6 +68,16 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: gradle
+
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/gradle/libs.versions.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
@@ -100,6 +119,15 @@ jobs:
         npm ci
         npm run build
 
+    - name: Sync Capacitor config (Android, if present)
+      working-directory: ./web
+      run: |
+        if [ -d "android" ]; then
+          npx cap sync android
+        else
+          echo "No Capacitor Android platform in ./web, skipping cap sync android"
+        fi
+
     - name: Copy web assets into Android app
       run: |
         rm -rf app/src/main/assets/*
@@ -112,6 +140,16 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
         cache: gradle
+
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', '**/gradle/libs.versions.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew

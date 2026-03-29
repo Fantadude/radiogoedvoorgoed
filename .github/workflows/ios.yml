@@ -66,12 +66,13 @@ jobs:
           echo "iOS platform exists with both Podfile and .xcodeproj"
         fi
 
+    - name: Sync Capacitor iOS platform
+      working-directory: ./web
+      run: npx cap sync ios
+
     - name: Sync web assets to iOS
       working-directory: ./web
       run: |
-        # Sync the web build with iOS (this copies web assets from dist/)
-        npx cap sync ios
-        
         echo "=== iOS/App/App/public contents after sync ==="
         ls -la ios/App/App/public/ | head -20
 
