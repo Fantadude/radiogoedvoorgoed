@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react';
 import { useAudio } from '../context/AudioContext';
 import './Podcasts.css';
 
-const API_BASE_URL = 'http://radiogvg.chickenkiller.com:3000'; // Your radio server API
+const API_BASE_URLS = [
+  'http://radiogvg.chickenkiller.com:3000',
+];
+const API_TIMEOUT_MS = 12000;
 
 interface PodcastEpisode {
   id: string;
@@ -12,6 +15,36 @@ interface PodcastEpisode {
   duration: string;
   publishDate: string;
   coverImage?: string;
+}
+
+async function fetchWithFallback(path: string, init?: RequestInit): Promise<Response> {
+  let lastError: unknown;
+
+  for (const baseUrl of API_BASE_URLS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        ...init,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        return response;
+      }
+
+      lastError = new Error(`HTTP ${response.status} for ${baseUrl}${path}`);
+    } catch (err) {
+      lastError = err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error('All API endpoints failed');
 }
 
 export default function Podcasts() {
@@ -43,16 +76,31 @@ export default function Podcasts() {
   const fetchPodcasts = async () => {
     setIsLoading(true);
     try {
-      // Your server proxies the podcast feed as XML
-      const response = await fetch(`${API_BASE_URL}/api/podcasts`);
-      if (response.ok) {
-        const xmlText = await response.text();
-        const parsedEpisodes = parseRSSFeed(xmlText);
-        setEpisodes(parsedEpisodes);
-        setError(null);
+      const response = await fetchWithFallback('/api/podcasts');
+      const contentType = response.headers.get('content-type') || '';
+
+      let parsedEpisodes: PodcastEpisode[] = [];
+
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        parsedEpisodes = Array.isArray(data)
+          ? data.map((episode, index) => ({
+              id: String(episode.id ?? `episode-${index}`),
+              title: episode.title || 'Untitled',
+              description: stripHtmlTags(episode.description || ''),
+              audioUrl: episode.audioUrl || episode.url || '',
+              duration: formatDuration(String(episode.duration || '')),
+              publishDate: episode.publishDate || episode.pubDate || '',
+              coverImage: episode.coverImage || episode.image || '',
+            })).filter((episode) => episode.audioUrl)
+          : [];
       } else {
-        throw new Error('Failed to fetch podcast feed');
+        const xmlText = await response.text();
+        parsedEpisodes = parseRSSFeed(xmlText);
       }
+
+      setEpisodes(parsedEpisodes);
+      setError(null);
     } catch (err) {
       console.error('Error fetching podcasts:', err);
       setError('Failed to load podcasts. Please try again later.');

@@ -76,6 +76,30 @@ jobs:
         echo "=== iOS/App/App/public contents after sync ==="
         ls -la ios/App/App/public/ | head -20
 
+    - name: Verify live stream cache-busting in iOS bundle
+      working-directory: ./web
+      run: |
+        echo "=== Verifying cache-busting stream logic in bundled iOS web assets ==="
+
+        # Ensure source has live cache-busting logic
+        if ! grep -q "nocache" src/context/AudioContext.tsx; then
+          echo "ERROR: Missing nocache parameter logic in src/context/AudioContext.tsx"
+          exit 1
+        fi
+
+        # Ensure built bundle copied to iOS contains stream URL and nocache token
+        if ! grep -R "ex52.voordeligstreamen.nl/8154/stream" ios/App/App/public/assets >/dev/null 2>&1; then
+          echo "ERROR: Stream URL not found in iOS bundled assets"
+          exit 1
+        fi
+
+        if ! grep -R "nocache" ios/App/App/public/assets >/dev/null 2>&1; then
+          echo "ERROR: nocache token not found in iOS bundled assets"
+          exit 1
+        fi
+
+        echo "Live stream cache-busting verified for iOS bundle"
+
     - name: Apply custom iOS icons
       working-directory: ./web
       run: |

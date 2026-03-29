@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import './Requests.css';
 
-const API_BASE_URL = 'http://radiogvg.chickenkiller.com:3000'; // Your radio server API
+const API_BASE_URLS = [
+  'http://radiogvg.chickenkiller.com:3000',
+];
+const API_TIMEOUT_MS = 12000;
 
 interface Song {
   ID: number;
@@ -23,6 +26,36 @@ interface SongRequest {
 }
 
 const ALPHABET = ['#', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
+
+async function fetchWithFallback(path: string, init?: RequestInit): Promise<Response> {
+  let lastError: unknown;
+
+  for (const baseUrl of API_BASE_URLS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(`${baseUrl}${path}`, {
+        ...init,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        return response;
+      }
+
+      lastError = new Error(`HTTP ${response.status} for ${baseUrl}${path}`);
+    } catch (err) {
+      lastError = err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  throw lastError || new Error('All API endpoints failed');
+}
 
 export default function Requests() {
   const [songs, setSongs] = useState<Song[]>([]);
@@ -63,15 +96,11 @@ export default function Requests() {
   const fetchSongsByLetter = async (letter: string) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/songs/letter/${encodeURIComponent(letter)}`);
-      if (response.ok) {
-        const data = await response.json();
-        const songList = Array.isArray(data) ? data : (Array.isArray(data?.songs) ? data.songs : []);
-        setSongs(songList);
-        setError(null);
-      } else {
-        throw new Error('Failed to fetch songs');
-      }
+      const response = await fetchWithFallback(`/api/songs/letter/${encodeURIComponent(letter)}`);
+      const data = await response.json();
+      const songList = Array.isArray(data) ? data : (Array.isArray(data?.songs) ? data.songs : []);
+      setSongs(songList);
+      setError(null);
     } catch (err) {
       setError('Failed to load songs from server');
       setSongs([]);
@@ -83,15 +112,11 @@ export default function Requests() {
   const searchSongs = async (query: string) => {
     setIsLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/songs/search?q=${encodeURIComponent(query)}`);
-      if (response.ok) {
-        const data = await response.json();
-        const songList = Array.isArray(data) ? data : (Array.isArray(data?.songs) ? data.songs : []);
-        setSongs(songList);
-        setError(null);
-      } else {
-        throw new Error('Search failed');
-      }
+      const response = await fetchWithFallback(`/api/songs/search?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
+      const songList = Array.isArray(data) ? data : (Array.isArray(data?.songs) ? data.songs : []);
+      setSongs(songList);
+      setError(null);
     } catch (err) {
       setError('Search failed');
       setSongs([]);
@@ -143,7 +168,7 @@ export default function Requests() {
     setSuccess(null);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/requests`, {
+      const response = await fetchWithFallback('/api/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -153,26 +178,22 @@ export default function Requests() {
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setSuccess(data.message || 'Request submitted successfully!');
-        setSelectedSong(null);
-        setMessage('');
-        // Add to local requests list
-        const newRequest: SongRequest = {
-          id: data.requestId?.toString() || Date.now().toString(),
-          songID: selectedSong.ID,
-          title: selectedSong.title,
-          artist: selectedSong.artist,
-          username: username || 'Anonymous',
-          message: message || '',
-          requested: new Date().toISOString(),
-          played: 0
-        };
-        setRequests(prev => [newRequest, ...prev]);
-      } else {
-        throw new Error('Failed to submit request');
-      }
+      const data = await response.json();
+      setSuccess(data.message || 'Request submitted successfully!');
+      setSelectedSong(null);
+      setMessage('');
+      // Add to local requests list
+      const newRequest: SongRequest = {
+        id: data.requestId?.toString() || Date.now().toString(),
+        songID: selectedSong.ID,
+        title: selectedSong.title,
+        artist: selectedSong.artist,
+        username: username || 'Anonymous',
+        message: message || '',
+        requested: new Date().toISOString(),
+        played: 0
+      };
+      setRequests(prev => [newRequest, ...prev]);
     } catch (err) {
       setError('Failed to submit request. Please try again.');
     } finally {

@@ -17,6 +17,7 @@ import android.media.MediaMetadata
 import android.media.MediaPlayer
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import androidx.core.net.toUri
 import android.net.wifi.WifiManager
 import android.os.Binder
 import android.os.Build
@@ -402,17 +403,27 @@ class MediaPlaybackService : Service() {
         }
     }
 
+    private fun buildFreshRadioStreamUri() =
+        "${RadioApiClient.STREAM_URL}${if (RadioApiClient.STREAM_URL.contains("?")) "&" else "?"}nocache=${System.currentTimeMillis()}".toUri()
+
     private fun createRadioMediaPlayer() {
         try {
             mediaPlayer?.release()
-                mediaPlayer = MediaPlayer().apply {
+            mediaPlayer = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build()
                 )
-                setDataSource(RadioApiClient.STREAM_URL)
+
+                val freshStreamUri = buildFreshRadioStreamUri()
+                val headers = mapOf(
+                    "Cache-Control" to "no-cache, no-store, must-revalidate",
+                    "Pragma" to "no-cache"
+                )
+                setDataSource(this@MediaPlaybackService, freshStreamUri, headers)
+
                 setOnPreparedListener {
                     it.start()
                     isPlayingState = true
@@ -428,7 +439,7 @@ class MediaPlaybackService : Service() {
                         playbackCallback?.onPlaybackStateChanged(true, PlaybackMode.RADIO)
                     }
                 }
-                setOnErrorListener { _, what, extra ->
+                setOnErrorListener { _, _, _ ->
                     isPlayingState = false
                     CoroutineScope(Dispatchers.Main).launch {
                         updatePlaybackState()
