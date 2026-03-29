@@ -82,17 +82,26 @@ jobs:
 
         /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "$INFO_PLIST" || true
         /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "$INFO_PLIST"
+        /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" "$INFO_PLIST"
         /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsInWebContent bool true" "$INFO_PLIST"
+        /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia bool true" "$INFO_PLIST"
         /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSExceptionDomains dict" "$INFO_PLIST"
 
         for DOMAIN in radiogvg.chickenkiller.com ex52.voordeligstreamen.nl audio.jukehost.co.uk radiogoedvoorgoed.nl; do
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSExceptionDomains:$DOMAIN dict" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSExceptionDomains:$DOMAIN:NSIncludesSubdomains bool true" "$INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSExceptionDomains:$DOMAIN:NSExceptionAllowsInsecureHTTPLoads bool true" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSExceptionDomains:$DOMAIN:NSTemporaryExceptionAllowsInsecureHTTPLoads bool true" "$INFO_PLIST"
           /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSExceptionDomains:$DOMAIN:NSTemporaryExceptionMinimumTLSVersion string TLSv1.0" "$INFO_PLIST"
         done
 
-        /usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$INFO_PLIST"
+        ATS_PRINT=$(/usr/libexec/PlistBuddy -c "Print :NSAppTransportSecurity" "$INFO_PLIST")
+        echo "$ATS_PRINT"
+
+        echo "$ATS_PRINT" | grep -q "NSAllowsArbitraryLoads = true" || { echo "ERROR: NSAllowsArbitraryLoads missing"; exit 1; }
+        echo "$ATS_PRINT" | grep -q "NSAllowsArbitraryLoadsForMedia = true" || { echo "ERROR: NSAllowsArbitraryLoadsForMedia missing"; exit 1; }
+        echo "$ATS_PRINT" | grep -q "NSAllowsArbitraryLoadsInWebContent = true" || { echo "ERROR: NSAllowsArbitraryLoadsInWebContent missing"; exit 1; }
+        echo "$ATS_PRINT" | grep -q "NSExceptionAllowsInsecureHTTPLoads = true" || { echo "ERROR: NSExceptionAllowsInsecureHTTPLoads missing"; exit 1; }
 
     - name: Sync web assets to iOS
       working-directory: ./web
