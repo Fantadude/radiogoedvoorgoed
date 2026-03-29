@@ -3,8 +3,13 @@
 	"appName": "Radio GoedvoorGoed",
 	"webDir": "dist",
 	"server": {
-		"androidScheme": "https",
-		"cleartext": true
+		"androidScheme": "http",
+		"iosScheme": "http",
+		"cleartext": true,
+		"allowNavigation": [
+			"ex52.voordeligstreamen.nl",
+			"radiogvg.chickenkiller.com"
+		]
 	},
 	"ios": {
 		"contentInset": "always",

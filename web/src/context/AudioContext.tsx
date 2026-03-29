@@ -301,6 +301,20 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         audio.audioSession = { type: 'playback' };
       }
 
+      // Keep global state in sync with the real audio element state (important on iOS)
+      audio.addEventListener('play', () => {
+        globalAudioState.isPlaying = true;
+        globalAudioState.mode = 'radio';
+        notifyListeners();
+      });
+
+      audio.addEventListener('pause', () => {
+        if (globalAudioState.mode === 'radio') {
+          globalAudioState.isPlaying = false;
+          notifyListeners();
+        }
+      });
+
       // Add error handling and auto-recovery for radio stream
       audio.addEventListener('error', (e) => {
         console.error('Radio stream error, attempting to reconnect...', e);
@@ -352,6 +366,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         notifyListeners();
       })
       .catch((err) => {
+        globalAudioState.mode = 'none';
         console.error('Failed to play radio:', err);
         globalAudioState.isPlaying = false;
         notifyListeners();

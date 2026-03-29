@@ -58,7 +58,7 @@ class RadioApiClient {
     }
 
     companion object {
-        const val BASE_URL = "http://86.84.18.58:3000"
+        const val BASE_URL = "http://radiogvg.chickenkiller.com:3000"
         const val STREAM_URL = "https://ex52.voordeligstreamen.nl/8154/stream"
         const val NOW_PLAYING_URL = "https://ex52.voordeligstreamen.nl/cp/get_info.php?p=8154"
         const val PODCAST_FEED_URL = "https://radiogoedvoorgoed.nl/feed/podcast/kringloop-verhalen/"

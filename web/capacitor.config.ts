@@ -8,6 +8,10 @@ const config: CapacitorConfig = {
     androidScheme: 'http',
     iosScheme: 'http',
     cleartext: true,
+    allowNavigation: [
+      'ex52.voordeligstreamen.nl',
+      'radiogvg.chickenkiller.com',
+    ],
   },
   ios: {
     contentInset: 'always',
@@ -15,7 +19,7 @@ const config: CapacitorConfig = {
     scrollEnabled: true,
     backgroundColor: '#1a1a2e', // Match dark theme
     // Disable webview bounce for app-like feel
-    limitsNavigationsToAppBoundaries: true,
+    limitsNavigationsToAppBoundaries: false,
   },
   plugins: {
     // Enable background audio
